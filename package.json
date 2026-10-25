@@ -1,0 +1,20 @@
+{
+  "name": "pop-rush",
+  "version": "1.0.0",
+  "description": "POP RUSH - A polished 2D arcade balloon popping browser game",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tests/verify.cjs && node tests/viewport-scaling.test.cjs",
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "phaser": "^3.90.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}
