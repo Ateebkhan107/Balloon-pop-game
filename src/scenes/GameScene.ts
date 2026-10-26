@@ -67,10 +67,12 @@ export class GameScene extends Phaser.Scene {
   private goldenPopped: number = 0;
   private hazardsHit: number = 0;
 
-  // Spawning & Physics
+  // Spawning & Anti-Grouping System
   private spawnTimer: number = 0;
   private balloons: Balloon[] = [];
-  private forcedTargetSpawns: number = 0;
+  private spawnsSinceTarget: number = 1;
+  private readonly minDistractorsBetweenTargets: number = 2;
+  private readonly maxDistractorsBetweenTargets: number = 3;
 
   // HUD Elements
   private timerText!: Phaser.GameObjects.Text;
@@ -118,7 +120,7 @@ export class GameScene extends Phaser.Scene {
     this.goldenPopped = 0;
     this.hazardsHit = 0;
     this.spawnTimer = 0;
-    this.forcedTargetSpawns = 2; // Guarantee targets early
+    this.spawnsSinceTarget = 1; // 1 initial distractor, then isolated target
     this.balloons = [];
     this.heartSprites = [];
 
@@ -168,8 +170,9 @@ export class GameScene extends Phaser.Scene {
         sound.playColorSwitch();
         this.updateTargetColorBadge(newColor);
         this.announceColorSwitch(newColor);
-        // Force next spawns to be the new color so player always has available targets
-        this.forcedTargetSpawns = 2;
+        // Reset counter so at least minDistractorsBetweenTargets distractors spawn first.
+        // This ensures the target color NEVER spawns in a group or immediately in a bunch!
+        this.spawnsSinceTarget = 0;
       },
       () => {
         // Warning 1 second before switch: subtle pulse on badge
@@ -904,7 +907,8 @@ export class GameScene extends Phaser.Scene {
 
     const dt = delta / 1000;
 
-    // 1. UPDATE MODE CLOCKS
+    // 1. UPDATE MODE CLOCKS & SCALED DIFFICULTY
+    let difficulty = 0;
     if (this.mode === 'time_attack') {
       this.timeLeft -= dt;
       if (this.timeLeft <= 0) {
@@ -912,6 +916,8 @@ export class GameScene extends Phaser.Scene {
         this.endGame();
         return;
       }
+
+      difficulty = Math.min(1, Math.max(0, (30 - this.timeLeft) / 30));
 
       const ceilTime = Math.ceil(this.timeLeft);
       this.timerText.setText(`${ceilTime}s`);
@@ -938,16 +944,27 @@ export class GameScene extends Phaser.Scene {
       }
     } else {
       // Endless Rush Clock
+      const prevSurv = this.survivalTime;
       this.survivalTime += dt;
+      difficulty = Math.min(1, this.survivalTime / 120);
+
       const m = Math.floor(this.survivalTime / 60);
       const s = Math.floor(this.survivalTime % 60);
       this.timerText.setText(`${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`);
+
+      // Announce milestone speed-ups every 30s
+      if (Math.floor(this.survivalTime / 30) > Math.floor(prevSurv / 30)) {
+        this.announceSpeedUp();
+      }
     }
 
     // 2. UPDATE COLOR RUSH SYSTEM
-    // In endless mode, switch interval scales down as survival time increases
-    if (this.mode === 'endless') {
-      const scaledInterval = Math.max(4.2, 7.5 - (this.survivalTime / 60) * 1.5);
+    // Color switch interval accelerates as difficulty scales up over time
+    if (this.mode === 'time_attack') {
+      const scaledInterval = Math.max(3.6, 6.5 - difficulty * 2.8); // 6.5s down to 3.7s
+      this.colorRushManager.setInterval(scaledInterval);
+    } else {
+      const scaledInterval = Math.max(3.5, 7.5 - difficulty * 4.0); // 7.5s down to 3.5s
       this.colorRushManager.setInterval(scaledInterval);
     }
     this.colorRushManager.update(dt, time);
@@ -1035,13 +1052,12 @@ export class GameScene extends Phaser.Scene {
 
   private getSpawnInterval(): number {
     if (this.mode === 'time_attack') {
-      if (this.timeLeft > 20) return 0.75;
-      if (this.timeLeft > 10) return 0.55;
-      return 0.4;
+      const diff = Math.min(1, Math.max(0, (30 - this.timeLeft) / 30));
+      return 0.72 - diff * 0.38; // 0.72s down to 0.34s
     } else {
-      // Endless: scales with survival time
-      const difficultyFactor = Math.min(1, this.survivalTime / 90);
-      return 0.8 - difficultyFactor * 0.38; // 0.8s down to 0.42s
+      // Endless: scales smoothly with survival time up to 120s+
+      const diff = Math.min(1, this.survivalTime / 120);
+      return 0.75 - diff * 0.42; // 0.75s down to 0.33s
     }
   }
 
@@ -1071,67 +1087,158 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private announceSpeedUp(): void {
+    const { width, height } = this.cameras.main;
+    SoundService.getInstance().playCombo(3);
+    const banner = this.add.text(width / 2, height * 0.38, '⚡ SPEED UP! ⚡', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '38px',
+      fontStyle: 'bold',
+      color: '#f59e0b',
+      stroke: '#0f172a',
+      strokeThickness: 6,
+    }).setOrigin(0.5).setDepth(150);
+
+    this.tweens.add({
+      targets: banner,
+      scaleX: 1.25,
+      scaleY: 1.25,
+      duration: 300,
+      yoyo: true,
+      onComplete: () => {
+        this.tweens.add({
+          targets: banner,
+          alpha: 0,
+          y: height * 0.34,
+          duration: 350,
+          delay: 250,
+          onComplete: () => banner.destroy(),
+        });
+      },
+    });
+  }
+
   private spawnBalloon(): void {
     const { width, height } = this.cameras.main;
     const activeTargetKey = this.colorRushManager.getActiveColorKey();
 
+    // Determine current difficulty factor [0, 1] based on elapsed time
+    const difficulty = this.mode === 'time_attack'
+      ? Math.min(1, Math.max(0, (30 - this.timeLeft) / 30))
+      : Math.min(1, this.survivalTime / 120);
+
     let type: BalloonType = 'normal';
     let colorKey = activeTargetKey;
 
+    // Difficulty-scaled probabilities for special balloons:
+    // Hazards scale up with time (8% -> 24%), punishing wild/careless tapping
+    const hazardChance = 0.08 + difficulty * 0.16;
+    const goldenChance = Math.max(0.04, 0.07 - difficulty * 0.02);
+    const rainbowChance = Math.max(0.03, 0.05 - difficulty * 0.01);
+    const freezeChance = 0.05;
+
     const roll = Math.random();
 
-    // Forced Target Spawn guarantee (after color switch)
-    if (this.forcedTargetSpawns > 0) {
-      this.forcedTargetSpawns--;
-      type = 'normal';
-      colorKey = activeTargetKey;
+    if (roll < goldenChance) {
+      type = 'golden';
+      this.spawnsSinceTarget++; // Specials act as visual buffers between target colors
+    } else if (roll < goldenChance + rainbowChance) {
+      type = 'rainbow';
+      this.spawnsSinceTarget++;
+    } else if (roll < goldenChance + rainbowChance + freezeChance) {
+      type = 'freeze';
+      this.spawnsSinceTarget++;
+    } else if (roll < goldenChance + rainbowChance + freezeChance + hazardChance) {
+      type = 'hazard';
+      this.spawnsSinceTarget++;
     } else {
-      // Special Balloon Spawning probabilities
-      if (roll < 0.08) {
-        type = 'golden';
-      } else if (roll < 0.13) {
-        type = 'rainbow';
-      } else if (roll < 0.18) {
-        type = 'freeze';
-      } else if (roll < 0.28) {
-        type = 'hazard';
+      // Normal balloon
+      type = 'normal';
+
+      // Anti-grouping algorithm:
+      // Target balloons NEVER spawn in a group!
+      // Must have at least minDistractorsBetweenTargets (2) non-target spawns between target spawns.
+      const distractorColors = ['red', 'blue', 'green', 'yellow', 'purple'].filter(
+        (c) => c !== activeTargetKey
+      );
+
+      const canSpawnTarget = this.spawnsSinceTarget >= this.minDistractorsBetweenTargets;
+      const mustSpawnTarget = this.spawnsSinceTarget >= this.maxDistractorsBetweenTargets;
+
+      if (!canSpawnTarget) {
+        // Enforce distractor spawn: strictly pick from OTHER colors
+        colorKey = distractorColors[Math.floor(Math.random() * distractorColors.length)];
+        this.spawnsSinceTarget++;
+      } else if (mustSpawnTarget) {
+        // Guaranteed target spawn after enough distractors
+        colorKey = activeTargetKey;
+        this.spawnsSinceTarget = 0;
       } else {
-        // Normal colored balloons
-        type = 'normal';
-        // 50% chance to match the active target color; 50% distributed among other colors
-        if (Math.random() < 0.5) {
+        // Between min and max: 35% chance of target, 65% chance of distractor
+        if (Math.random() < 0.35) {
           colorKey = activeTargetKey;
+          this.spawnsSinceTarget = 0;
         } else {
-          const colors = ['red', 'blue', 'green', 'yellow', 'purple'];
-          colorKey = colors[Math.floor(Math.random() * colors.length)];
+          colorKey = distractorColors[Math.floor(Math.random() * distractorColors.length)];
+          this.spawnsSinceTarget++;
         }
       }
     }
 
-    // Speed calculation
-    let baseSpeed = 230;
-    if (this.mode === 'time_attack') {
-      if (this.timeLeft <= 20) baseSpeed = 290;
-      if (this.timeLeft <= 10) baseSpeed = 360;
-    } else {
-      // Endless: scales up with survival time
-      const difficulty = Math.min(1, this.survivalTime / 120);
-      baseSpeed = 220 + difficulty * 130; // 220 to 350
-    }
-    const speed = baseSpeed + Phaser.Math.Between(-25, 35);
+    // Dynamic speed scaling with elapsed time
+    let baseSpeed: number;
+    let swayAmp: number;
+    let swayFreq: number;
 
-    const startX = Phaser.Math.Between(80, width - 80);
+    if (this.mode === 'time_attack') {
+      baseSpeed = 230 + difficulty * 220; // 230 px/s early up to 450 px/s in final rush
+      swayAmp = 25 + difficulty * 25;     // 25px up to 50px
+      swayFreq = 1.8 + difficulty * 1.4;  // 1.8 up to 3.2
+    } else {
+      baseSpeed = 220 + difficulty * 230; // 220 px/s early up to 450 px/s
+      swayAmp = 25 + difficulty * 25;     // 25px up to 50px
+      swayFreq = 1.8 + difficulty * 1.4;  // 1.8 up to 3.2
+    }
+
+    const speed = baseSpeed + Phaser.Math.Between(-20, 25);
+    const swayAmplitude = Phaser.Math.Between(Math.floor(swayAmp * 0.8), Math.floor(swayAmp * 1.2));
+    const swayFrequency = Phaser.Math.FloatBetween(swayFreq * 0.85, swayFreq * 1.15);
+
+    // Dynamic horizontal placement:
+    // Prevent target balloons from spawning at the same X position as an already-rising target balloon
+    let startX = Phaser.Math.Between(80, width - 80);
+    if (colorKey === activeTargetKey) {
+      const activeTargets = this.balloons.filter((b) => !b.isPopped && b.colorKey === activeTargetKey);
+      if (activeTargets.length > 0) {
+        const lastTarget = activeTargets[activeTargets.length - 1];
+        if (Math.abs(startX - lastTarget.x) < 160) {
+          startX = lastTarget.x < width / 2
+            ? Phaser.Math.Between(width / 2 + 40, width - 80)
+            : Phaser.Math.Between(80, width / 2 - 40);
+        }
+      }
+    }
+
     const startY = height + 80;
 
     const balloon = new Balloon(this, {
       type,
       colorKey,
       speed,
-      swayAmplitude: Phaser.Math.Between(25, 45),
-      swayFrequency: Phaser.Math.FloatBetween(1.8, 2.6),
+      swayAmplitude,
+      swayFrequency,
       startX,
       startY,
-      scoreValue: type === 'golden' ? 300 : type === 'rainbow' ? 250 : type === 'freeze' ? 150 : type === 'hazard' ? -200 : 100,
+      scoreValue:
+        type === 'golden'
+          ? 300
+          : type === 'rainbow'
+          ? 250
+          : type === 'freeze'
+          ? 150
+          : type === 'hazard'
+          ? -200
+          : 100,
       onEscape: (b) => this.handleBalloonEscape(b),
     });
 

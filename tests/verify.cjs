@@ -299,6 +299,147 @@ test('Perfect Pop: touches within 22px of visual body center earn +50 bonus', ()
   assert.strictEqual(checkPerfect(335, 475), false, 'Far edge tap (dist 35px) is regular pop');
 });
 
+// 11. Anti-Grouping Target Spawning Verification
+test('Anti-Grouping: target color never spawns in groups and is separated by at least 2 non-target spawns', () => {
+  const activeTargetKey = 'blue';
+  const minDistractors = 2;
+  const maxDistractors = 3;
+  let spawnsSinceTarget = 1;
+  const spawnLog = [];
+
+  for (let i = 0; i < 60; i++) {
+    const canSpawnTarget = spawnsSinceTarget >= minDistractors;
+    const mustSpawnTarget = spawnsSinceTarget >= maxDistractors;
+    let isTarget = false;
+
+    if (!canSpawnTarget) {
+      isTarget = false;
+      spawnsSinceTarget++;
+    } else if (mustSpawnTarget) {
+      isTarget = true;
+      spawnsSinceTarget = 0;
+    } else {
+      if (Math.random() < 0.35) {
+        isTarget = true;
+        spawnsSinceTarget = 0;
+      } else {
+        isTarget = false;
+        spawnsSinceTarget++;
+      }
+    }
+    spawnLog.push(isTarget);
+  }
+
+  // Verify that there are NEVER two consecutive target spawns (no grouping!)
+  for (let i = 0; i < spawnLog.length - 1; i++) {
+    if (spawnLog[i] === true) {
+      assert.strictEqual(spawnLog[i + 1], false, `Target spawned consecutively at index ${i + 1}`);
+      if (i + 2 < spawnLog.length) {
+        assert.strictEqual(spawnLog[i + 2], false, `Target spawned with only 1 buffer at index ${i + 2}`);
+      }
+    }
+  }
+
+  // Verify target is never starved (at least 1 target every 4 spawns)
+  let maxGap = 0;
+  let currentGap = 0;
+  for (const isTarget of spawnLog) {
+    if (isTarget) {
+      maxGap = Math.max(maxGap, currentGap);
+      currentGap = 0;
+    } else {
+      currentGap++;
+    }
+  }
+  assert.ok(maxGap <= maxDistractors, `Gap ${maxGap} exceeded maxDistractors ${maxDistractors}`);
+});
+
+// 12. Distractor Color Isolation Verification
+test('Distractor Isolation: distractor colors strictly exclude the active target color', () => {
+  const activeTargetKey = 'purple';
+  const allColors = ['red', 'blue', 'green', 'yellow', 'purple'];
+  const distractorColors = allColors.filter(c => c !== activeTargetKey);
+
+  assert.strictEqual(distractorColors.includes('purple'), false, 'Target color must not be in distractor pool');
+  assert.strictEqual(distractorColors.length, 4, 'Must have 4 distractor colors available');
+
+  for (let i = 0; i < 50; i++) {
+    const chosen = distractorColors[Math.floor(Math.random() * distractorColors.length)];
+    assert.notStrictEqual(chosen, activeTargetKey, 'Distractor roll matched target color');
+  }
+});
+
+// 13. Dynamic Time Attack Difficulty Progression
+test('Time Attack Difficulty: speed, spawn interval, hazard rate, and color switch scale with time', () => {
+  function getDifficulty(timeLeft) {
+    return Math.min(1, Math.max(0, (30 - timeLeft) / 30));
+  }
+
+  function getBaseSpeed(diff) { return 230 + diff * 220; }
+  function getSpawnInterval(diff) { return 0.72 - diff * 0.38; }
+  function getHazardRate(diff) { return 0.08 + diff * 0.16; }
+  function getColorSwitchInterval(diff) { return Math.max(3.6, 6.5 - diff * 2.8); }
+
+  // Early phase (timeLeft = 30)
+  const diffEarly = getDifficulty(30);
+  assert.strictEqual(diffEarly, 0);
+  assert.strictEqual(getBaseSpeed(diffEarly), 230);
+  assert.strictEqual(Math.round(getSpawnInterval(diffEarly) * 100) / 100, 0.72);
+  assert.strictEqual(Math.round(getHazardRate(diffEarly) * 100) / 100, 0.08);
+  assert.strictEqual(getColorSwitchInterval(diffEarly), 6.5);
+
+  // Mid phase (timeLeft = 15)
+  const diffMid = getDifficulty(15);
+  assert.strictEqual(diffMid, 0.5);
+  assert.strictEqual(getBaseSpeed(diffMid), 340);
+  assert.strictEqual(Math.round(getSpawnInterval(diffMid) * 100) / 100, 0.53);
+  assert.strictEqual(Math.round(getHazardRate(diffMid) * 100) / 100, 0.16);
+  assert.strictEqual(Math.round(getColorSwitchInterval(diffMid) * 10) / 10, 5.1);
+
+  // Rush phase (timeLeft = 0)
+  const diffRush = getDifficulty(0);
+  assert.strictEqual(diffRush, 1);
+  assert.strictEqual(getBaseSpeed(diffRush), 450);
+  assert.strictEqual(Math.round(getSpawnInterval(diffRush) * 100) / 100, 0.34);
+  assert.strictEqual(Math.round(getHazardRate(diffRush) * 100) / 100, 0.24);
+  assert.strictEqual(Math.round(getColorSwitchInterval(diffRush) * 10) / 10, 3.7);
+});
+
+// 14. Dynamic Endless Rush Difficulty Progression
+test('Endless Rush Difficulty: scales progressively with survival time up to 120s+', () => {
+  function getDifficulty(survivalTime) {
+    return Math.min(1, survivalTime / 120);
+  }
+
+  function getBaseSpeed(diff) { return 220 + diff * 230; }
+  function getSpawnInterval(diff) { return 0.75 - diff * 0.42; }
+  function getHazardRate(diff) { return Math.min(0.25, 0.08 + diff * 0.16); }
+  function getColorSwitchInterval(diff) { return Math.max(3.5, 7.5 - diff * 4.0); }
+
+  // 0s Survival
+  const d0 = getDifficulty(0);
+  assert.strictEqual(getBaseSpeed(d0), 220);
+  assert.strictEqual(Math.round(getSpawnInterval(d0) * 100) / 100, 0.75);
+  assert.strictEqual(Math.round(getHazardRate(d0) * 100) / 100, 0.08);
+  assert.strictEqual(getColorSwitchInterval(d0), 7.5);
+
+  // 60s Survival (1 minute)
+  const d60 = getDifficulty(60);
+  assert.strictEqual(d60, 0.5);
+  assert.strictEqual(getBaseSpeed(d60), 335);
+  assert.strictEqual(Math.round(getSpawnInterval(d60) * 100) / 100, 0.54);
+  assert.strictEqual(Math.round(getHazardRate(d60) * 100) / 100, 0.16);
+  assert.strictEqual(getColorSwitchInterval(d60), 5.5);
+
+  // 120s+ Survival (2 minutes)
+  const d120 = getDifficulty(120);
+  assert.strictEqual(d120, 1);
+  assert.strictEqual(getBaseSpeed(d120), 450);
+  assert.strictEqual(Math.round(getSpawnInterval(d120) * 100) / 100, 0.33);
+  assert.strictEqual(Math.round(getHazardRate(d120) * 100) / 100, 0.24);
+  assert.strictEqual(getColorSwitchInterval(d120), 3.5);
+});
+
 console.log(`\nTest Results: ${passed}/${total} passed (${Math.round((passed/total)*100)}%)\n`);
 
 if (passed !== total) {
