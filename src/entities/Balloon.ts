@@ -69,7 +69,8 @@ export class Balloon extends Phaser.GameObjects.Sprite {
   }
 
   public update(_time: number, delta: number): boolean {
-    if (this.isPopped) return true;
+    // If popped or escaping, tell GameScene this balloon is no longer active
+    if (this.isPopped) return false;
 
     const dt = delta / 1000;
     this.floatTime += dt;
@@ -98,19 +99,34 @@ export class Balloon extends Phaser.GameObjects.Sprite {
     this.isPopped = true;
     this.disableInteractive();
 
+    if (!this.scene) {
+      if (onComplete) onComplete();
+      this.destroy();
+      return;
+    }
+
+    // Stop any ongoing tweens (e.g., spawn bounce) so pop animation plays cleanly
+    this.scene.tweens.killTweensOf(this);
+
+    // Quick burst expand followed by shrink to 0 and destruction
     this.scene.tweens.add({
       targets: this,
       scaleX: 1.25,
       scaleY: 1.25,
-      alpha: 0.8,
-      duration: 60,
+      alpha: 0.7,
+      duration: 50,
       onComplete: () => {
+        if (!this.scene) {
+          if (onComplete) onComplete();
+          this.destroy();
+          return;
+        }
         this.scene.tweens.add({
           targets: this,
           scaleX: 0,
           scaleY: 0,
           alpha: 0,
-          duration: 90,
+          duration: 80,
           onComplete: () => {
             if (onComplete) onComplete();
             this.destroy();
@@ -124,6 +140,13 @@ export class Balloon extends Phaser.GameObjects.Sprite {
     if (this.isPopped) return;
     this.isPopped = true;
     this.disableInteractive();
+
+    if (!this.scene) {
+      this.destroy();
+      return;
+    }
+
+    this.scene.tweens.killTweensOf(this);
 
     this.scene.tweens.add({
       targets: this,

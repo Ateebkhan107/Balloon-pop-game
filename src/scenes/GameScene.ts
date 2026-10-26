@@ -394,9 +394,8 @@ export class GameScene extends Phaser.Scene {
 
   private handleBalloonPop(balloon: Balloon): void {
     if (balloon.isPopped) return;
-    // Synchronously lock state immediately to prevent duplicate scoring from multi-touch
-    balloon.isPopped = true;
-    balloon.disableInteractive();
+    // Trigger pop destruction & animation immediately (sets isPopped = true and disables interactivity)
+    balloon.pop();
 
     const sound = SoundService.getInstance();
     const settings = StorageService.getInstance().getSettings();
@@ -461,8 +460,6 @@ export class GameScene extends Phaser.Scene {
         this.cameras.main.flash(200, 239, 68, 68);
       }
     }
-
-    balloon.pop();
   }
 
   private refreshCombo(): void {

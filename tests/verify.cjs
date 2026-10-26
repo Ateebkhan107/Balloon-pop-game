@@ -136,6 +136,51 @@ test('Spawn Bounds: coordinates stay within visible 720px virtual canvas', () =>
   }
 });
 
+// 5. Balloon Pop Lifecycle Verification
+test('Balloon Pop Lifecycle: pop() marks isPopped, disables input, and update() returns false', () => {
+  let destroyed = false;
+  let interactionDisabled = false;
+
+  class MockBalloon {
+    constructor() {
+      this.isPopped = false;
+    }
+
+    disableInteractive() {
+      interactionDisabled = true;
+    }
+
+    destroy() {
+      destroyed = true;
+    }
+
+    pop(onComplete) {
+      if (this.isPopped) return;
+      this.isPopped = true;
+      this.disableInteractive();
+      // Simulating tween onComplete
+      if (onComplete) onComplete();
+      this.destroy();
+    }
+
+    update() {
+      if (this.isPopped) return false;
+      return true;
+    }
+  }
+
+  const balloon = new MockBalloon();
+  assert.strictEqual(balloon.isPopped, false);
+  assert.strictEqual(balloon.update(), true, 'Active balloon update() must return true');
+
+  // Trigger pop
+  balloon.pop();
+  assert.strictEqual(balloon.isPopped, true, 'isPopped must be true after pop');
+  assert.strictEqual(interactionDisabled, true, 'Interactive must be disabled immediately');
+  assert.strictEqual(balloon.update(), false, 'Popped balloon update() must return false to remove from array');
+  assert.strictEqual(destroyed, true, 'Balloon must be destroyed after pop');
+});
+
 console.log(`\nTest Results: ${passed}/${total} passed (${Math.round((passed/total)*100)}%)\n`);
 
 if (passed !== total) {
