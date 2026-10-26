@@ -4,8 +4,18 @@ export interface GameSettings {
   reducedMotion: boolean;
 }
 
-const HIGH_SCORE_KEY = 'pop_rush_high_score';
-const SETTINGS_KEY = 'pop_rush_settings';
+export interface GameRecords {
+  timeAttackHighScore: number;
+  endlessHighScore: number;
+  endlessBestTime: number; // in seconds
+}
+
+const STORAGE_KEYS = {
+  HIGH_SCORE_TIME_ATTACK: 'pop_rush_high_score', // preserved for backward compatibility
+  HIGH_SCORE_ENDLESS: 'pop_rush_endless_high_score',
+  BEST_TIME_ENDLESS: 'pop_rush_endless_best_time',
+  SETTINGS: 'pop_rush_settings',
+};
 
 export class StorageService {
   private static instance: StorageService;
@@ -22,20 +32,22 @@ export class StorageService {
     return StorageService.instance;
   }
 
-  public getHighScore(): number {
+  // --- TIME ATTACK RECORDS ---
+
+  public getTimeAttackHighScore(): number {
     try {
-      const val = localStorage.getItem(HIGH_SCORE_KEY);
+      const val = localStorage.getItem(STORAGE_KEYS.HIGH_SCORE_TIME_ATTACK);
       return val ? parseInt(val, 10) || 0 : 0;
     } catch {
       return 0;
     }
   }
 
-  public saveHighScore(score: number): boolean {
-    const currentHigh = this.getHighScore();
-    if (score > currentHigh) {
+  public saveTimeAttackHighScore(score: number): boolean {
+    const current = this.getTimeAttackHighScore();
+    if (score > current) {
       try {
-        localStorage.setItem(HIGH_SCORE_KEY, score.toString());
+        localStorage.setItem(STORAGE_KEYS.HIGH_SCORE_TIME_ATTACK, score.toString());
         return true;
       } catch {
         return false;
@@ -44,6 +56,64 @@ export class StorageService {
     return false;
   }
 
+  // --- ENDLESS RUSH RECORDS ---
+
+  public getEndlessHighScore(): number {
+    try {
+      const val = localStorage.getItem(STORAGE_KEYS.HIGH_SCORE_ENDLESS);
+      return val ? parseInt(val, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  public saveEndlessHighScore(score: number): boolean {
+    const current = this.getEndlessHighScore();
+    if (score > current) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.HIGH_SCORE_ENDLESS, score.toString());
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  public getEndlessBestTime(): number {
+    try {
+      const val = localStorage.getItem(STORAGE_KEYS.BEST_TIME_ENDLESS);
+      return val ? Math.floor(parseFloat(val)) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  public saveEndlessBestTime(seconds: number): boolean {
+    const current = this.getEndlessBestTime();
+    const rounded = Math.floor(seconds);
+    if (rounded > current) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.BEST_TIME_ENDLESS, rounded.toString());
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  // Backward compatibility helper
+  public getHighScore(): number {
+    return this.getTimeAttackHighScore();
+  }
+
+  public saveHighScore(score: number): boolean {
+    return this.saveTimeAttackHighScore(score);
+  }
+
+  // --- SETTINGS ---
+
   public getSettings(): GameSettings {
     return { ...this.settings };
   }
@@ -51,9 +121,9 @@ export class StorageService {
   public saveSettings(updated: Partial<GameSettings>): void {
     this.settings = { ...this.settings, ...updated };
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
+      localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(this.settings));
     } catch {
-      // Ignore quota or disabled localStorage errors
+      // Ignore quota errors
     }
   }
 
@@ -70,7 +140,7 @@ export class StorageService {
     };
 
     try {
-      const saved = localStorage.getItem(SETTINGS_KEY);
+      const saved = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
@@ -79,7 +149,7 @@ export class StorageService {
         };
       }
     } catch {
-      // Fallback to defaults
+      // Fallback
     }
 
     return defaults;

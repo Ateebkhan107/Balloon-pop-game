@@ -8,13 +8,13 @@ export class GameModals {
     const container = scene.add.container(0, 0).setDepth(200);
 
     // Dim background overlay - absorbs clicks
-    const overlay = scene.add.rectangle(width / 2, height / 2, width, height, 0x0f172a, 0.85);
+    const overlay = scene.add.rectangle(width / 2, height / 2, width, height, 0x0f172a, 0.88);
     overlay.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, height), Phaser.Geom.Rectangle.Contains);
     container.add(overlay);
 
     // Modal Card
-    const cardWidth = Math.min(width * 0.88, 540);
-    const cardHeight = Math.min(height * 0.82, 720);
+    const cardWidth = Math.min(width * 0.9, 560);
+    const cardHeight = Math.min(height * 0.86, 760);
     const card = scene.add.graphics();
     card.fillStyle(0x1e1b4b, 0.98);
     card.lineStyle(4, 0x6366f1, 1);
@@ -23,9 +23,9 @@ export class GameModals {
     container.add(card);
 
     // Title
-    const title = scene.add.text(width / 2, height / 2 - cardHeight / 2 + 50, 'HOW TO PLAY', {
+    const title = scene.add.text(width / 2, height / 2 - cardHeight / 2 + 45, 'HOW TO PLAY', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '36px',
+      fontSize: '34px',
       fontStyle: 'bold',
       color: '#f43f5e',
       stroke: '#0f172a',
@@ -33,65 +33,108 @@ export class GameModals {
     }).setOrigin(0.5);
     container.add(title);
 
-    // Subtitle / Intro
-    const intro = scene.add.text(width / 2, height / 2 - cardHeight / 2 + 95, 'Pop as many balloons as you can in 30 seconds!', {
+    let contentY = height / 2 - cardHeight / 2 + 90;
+
+    // --- SECTION 1: COLOR RUSH ---
+    const crBox = scene.add.graphics();
+    crBox.fillStyle(0x312e81, 0.6);
+    crBox.fillRoundedRect(width / 2 - cardWidth / 2 + 25, contentY, cardWidth - 50, 95, 14);
+    container.add(crBox);
+
+    const crTitle = scene.add.text(width / 2, contentY + 20, '🎯 COLOR RUSH RULES', {
       fontFamily: "'Fredoka', sans-serif",
       fontSize: '18px',
-      color: '#cbd5e1',
-      align: 'center',
+      fontStyle: 'bold',
+      color: '#38bdf8',
     }).setOrigin(0.5);
-    container.add(intro);
 
-    // Balloon Types Guide
-    const entriesY = height / 2 - cardHeight / 2 + 140;
-
-    // Normal Balloon Item
-    const normIcon = scene.add.sprite(width / 2 - cardWidth / 2 + 60, entriesY + 35, 'balloon_pink').setScale(0.45);
-    const normText = scene.add.text(width / 2 - cardWidth / 2 + 110, entriesY + 20, 'NORMAL BALLOONS\n+100 pts x Combo. Builds speed multiplier.', {
+    const crDesc = scene.add.text(width / 2, contentY + 56, 'Watch the top indicator (e.g. "POP RED 🔴"). Only pop balloons matching the target color! Other colors are distractions.', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '17px',
-      color: '#fbcfe8',
-      lineSpacing: 4,
-    });
-    container.add([normIcon, normText]);
-
-    // Golden Balloon Item
-    const goldIcon = scene.add.sprite(width / 2 - cardWidth / 2 + 60, entriesY + 125, 'balloon_golden').setScale(0.45);
-    const goldText = scene.add.text(width / 2 - cardWidth / 2 + 110, entriesY + 110, 'GOLDEN BALLOON (RARE)\n+300 pts & adds +2 SECONDS to your clock!', {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '17px',
-      color: '#fef08a',
-      lineSpacing: 4,
-    });
-    container.add([goldIcon, goldText]);
-
-    // Hazard Balloon Item
-    const hazIcon = scene.add.sprite(width / 2 - cardWidth / 2 + 60, entriesY + 215, 'balloon_hazard').setScale(0.45);
-    const hazText = scene.add.text(width / 2 - cardWidth / 2 + 110, entriesY + 200, 'HAZARD BALLOON (AVOID!)\n-200 pts, -3s clock penalty, & resets combo!', {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '17px',
-      color: '#fca5a5',
-      lineSpacing: 4,
-    });
-    container.add([hazIcon, hazText]);
-
-    // Combos & Controls
-    const tipBox = scene.add.graphics();
-    tipBox.fillStyle(0x312e81, 0.7);
-    tipBox.fillRoundedRect(width / 2 - cardWidth / 2 + 30, entriesY + 290, cardWidth - 60, 110, 16);
-    container.add(tipBox);
-
-    const tipText = scene.add.text(width / 2, entriesY + 345, '🔥 SPEED COMBOS: Pop balloons in quick succession to reach up to 5X MULTIPLIER!\n\n🎮 CONTROLS: Click / Tap to pop. Press P or ESC to pause.', {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '15px',
+      fontSize: '14px',
       color: '#e2e8f0',
       align: 'center',
-      wordWrap: { width: cardWidth - 80 },
+      wordWrap: { width: cardWidth - 70 },
     }).setOrigin(0.5);
-    container.add(tipText);
+    container.add([crTitle, crDesc]);
+
+    contentY += 115;
+
+    // --- SECTION 2: GAME MODES ---
+    const gmTitle = scene.add.text(width / 2, contentY, '⚡ TWO GAME MODES', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: '#fbbf24',
+    }).setOrigin(0.5);
+    container.add(gmTitle);
+
+    contentY += 25;
+
+    const taText = scene.add.text(width / 2 - cardWidth / 2 + 35, contentY, '⏱️ TIME ATTACK: 30s speedrun. Pop golden balloons for +2s time extensions & build combos into Fever Mode!', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '14px',
+      color: '#cbd5e1',
+      wordWrap: { width: cardWidth - 70 },
+    });
+    container.add(taText);
+
+    contentY += 45;
+
+    const erText = scene.add.text(width / 2 - cardWidth / 2 + 35, contentY, '❤️ ENDLESS RUSH: 3 Lives. No clock! Wrong color pops, hitting bombs, or letting a valid target escape costs 1 Life.', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '14px',
+      color: '#cbd5e1',
+      wordWrap: { width: cardWidth - 70 },
+    });
+    container.add(erText);
+
+    contentY += 55;
+
+    // --- SECTION 3: SPECIAL BALLOONS GUIDE ---
+    const specTitle = scene.add.text(width / 2, contentY, '✨ SPECIAL BALLOONS', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: '#f472b6',
+    }).setOrigin(0.5);
+    container.add(specTitle);
+
+    contentY += 30;
+
+    const items = [
+      { key: 'balloon_golden', text: 'GOLDEN: Universal bonus! +300 pts (+2s in Time Attack). Always safe.' },
+      { key: 'balloon_rainbow', text: 'RAINBOW: WILD! Matches any active color & gives huge Fever charge!' },
+      { key: 'balloon_freeze', text: 'FREEZE: Glacial slow! Reduces all balloon speeds by 60% for 4 seconds.' },
+      { key: 'balloon_hazard', text: 'BOMB: Hazard! -200 pts in Time Attack, or -1 Life in Endless Rush.' },
+    ];
+
+    items.forEach((item, idx) => {
+      const itemY = contentY + idx * 48;
+      const spr = scene.add.sprite(width / 2 - cardWidth / 2 + 55, itemY + 12, item.key).setScale(0.32);
+      const txt = scene.add.text(width / 2 - cardWidth / 2 + 95, itemY, item.text, {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '13px',
+        color: '#f1f5f9',
+        wordWrap: { width: cardWidth - 130 },
+      });
+      container.add([spr, txt]);
+    });
+
+    contentY += 205;
+
+    // --- SECTION 4: FEVER & PERFECT POPS ---
+    const bonusText = scene.add.text(width / 2, contentY, '💥 Tap near balloon centers for PERFECT POP (+50 pts)!\nFill the Fever Gauge to unleash 5s of FEVER MODE (All balloons valid, 2x pts)!', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '13px',
+      color: '#fef08a',
+      fontStyle: 'bold',
+      align: 'center',
+      wordWrap: { width: cardWidth - 60 },
+    }).setOrigin(0.5);
+    container.add(bonusText);
 
     // Close Button (200x50)
-    const btnY = height / 2 + cardHeight / 2 - 55;
+    const btnY = height / 2 + cardHeight / 2 - 45;
     const closeBtn = scene.add.container(width / 2, btnY);
     const btnBg = scene.add.graphics();
     btnBg.fillStyle(0x10b981, 1);
@@ -105,7 +148,6 @@ export class GameModals {
     closeBtn.add([btnBg, btnText]);
     closeBtn.setSize(200, 50);
 
-    // HitArea matches normalized container coordinates
     closeBtn.setInteractive(new Phaser.Geom.Rectangle(0, 0, 200, 50), Phaser.Geom.Rectangle.Contains);
     if (closeBtn.input) {
       closeBtn.input.cursor = 'pointer';
@@ -134,7 +176,6 @@ export class GameModals {
 
     container.add(closeBtn);
 
-    // Animation in
     container.setScale(0.9);
     container.setAlpha(0);
     scene.tweens.add({
@@ -146,7 +187,6 @@ export class GameModals {
       ease: 'Back.easeOut',
     });
 
-    // Close on ESC
     const escKey = scene.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     const escListener = () => {
       doClose();
@@ -165,12 +205,10 @@ export class GameModals {
 
     const container = scene.add.container(0, 0).setDepth(200);
 
-    // Dim background overlay
-    const overlay = scene.add.rectangle(width / 2, height / 2, width, height, 0x0f172a, 0.85);
+    const overlay = scene.add.rectangle(width / 2, height / 2, width, height, 0x0f172a, 0.88);
     overlay.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, height), Phaser.Geom.Rectangle.Contains);
     container.add(overlay);
 
-    // Modal Card
     const cardWidth = Math.min(width * 0.88, 520);
     const cardHeight = Math.min(height * 0.75, 580);
     const card = scene.add.graphics();
@@ -180,7 +218,6 @@ export class GameModals {
     card.strokeRoundedRect(width / 2 - cardWidth / 2, height / 2 - cardHeight / 2, cardWidth, cardHeight, 24);
     container.add(card);
 
-    // Title
     const title = scene.add.text(width / 2, height / 2 - cardHeight / 2 + 50, 'SETTINGS', {
       fontFamily: "'Fredoka', sans-serif",
       fontSize: '36px',
@@ -406,7 +443,6 @@ export class GameModals {
     });
     container.add(closeBtn);
 
-    // Animation in
     container.setScale(0.9);
     container.setAlpha(0);
     scene.tweens.add({
@@ -418,7 +454,6 @@ export class GameModals {
       ease: 'Back.easeOut',
     });
 
-    // Close on ESC
     const escKey = scene.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     const escListener = () => {
       doClose();

@@ -81,48 +81,45 @@ VIEWPORTS.forEach((vp) => {
     assert.ok(Math.abs(canvasTop - expectedTop) < 0.01);
   });
 
-  check(`${vp.name}: Play Now button hit tests correctly at all points`, () => {
-    // Play button in MenuScene: x = 360, y = height * 0.55 = 594. btnWidth = 280, btnHeight = 66
+  check(`${vp.name}: Time Attack mode card hit tests correctly at all points`, () => {
+    // Time Attack card in MenuScene: x = 360, y = height * 0.38 = 410.4. btnWidth = 520, btnHeight = 160
     const btnX = 360;
-    const btnY = 594;
-    const btnW = 280;
-    const btnH = 66;
+    const btnY = 410;
+    const btnW = 520;
+    const btnH = 160;
 
-    // HitArea is (0, 0, btnW, btnH).
-    // In Phaser Container hit testing: localX = pointerGameX - btnX + (btnW / 2)
     const playHitArea = { x: 0, y: 0, width: btnW, height: btnH };
 
     function testScreenPoint(screenX, screenY) {
       const gameX = (screenX - canvasLeft) / scale;
       const gameY = (screenY - canvasTop) / scale;
-      // Container normalized local coordinate:
       const localX = gameX - btnX + (btnW / 2);
       const localY = gameY - btnY + (btnH / 2);
       return containsRect(playHitArea, localX, localY);
     }
 
-    // 1. Center of Play button on screen
+    // 1. Center of card on screen
     const centerScreenX = canvasLeft + btnX * scale;
     const centerScreenY = canvasTop + btnY * scale;
     assert.strictEqual(testScreenPoint(centerScreenX, centerScreenY), true, 'Center should hit');
 
-    // 2. Left edge of button
-    assert.strictEqual(testScreenPoint(canvasLeft + (btnX - btnW / 2 + 5) * scale, centerScreenY), true, 'Left edge should hit');
+    // 2. Left edge of card
+    assert.strictEqual(testScreenPoint(canvasLeft + (btnX - btnW / 2 + 10) * scale, centerScreenY), true, 'Left edge should hit');
 
-    // 3. Right edge of button
-    assert.strictEqual(testScreenPoint(canvasLeft + (btnX + btnW / 2 - 5) * scale, centerScreenY), true, 'Right edge should hit');
+    // 3. Right edge of card
+    assert.strictEqual(testScreenPoint(canvasLeft + (btnX + btnW / 2 - 10) * scale, centerScreenY), true, 'Right edge should hit');
 
-    // 4. Top edge of button
-    assert.strictEqual(testScreenPoint(centerScreenX, canvasTop + (btnY - btnH / 2 + 5) * scale), true, 'Top edge should hit');
+    // 4. Top edge of card
+    assert.strictEqual(testScreenPoint(centerScreenX, canvasTop + (btnY - btnH / 2 + 10) * scale), true, 'Top edge should hit');
 
-    // 5. Bottom edge of button
-    assert.strictEqual(testScreenPoint(centerScreenX, canvasTop + (btnY + btnH / 2 - 5) * scale), true, 'Bottom edge should hit');
+    // 5. Bottom edge of card
+    assert.strictEqual(testScreenPoint(centerScreenX, canvasTop + (btnY + btnH / 2 - 10) * scale), true, 'Bottom edge should hit');
 
-    // 6. Outside button (50px to the left)
-    assert.strictEqual(testScreenPoint(canvasLeft + (btnX - btnW / 2 - 50) * scale, centerScreenY), false, 'Outside left should miss');
+    // 6. Outside card (40px to the left)
+    assert.strictEqual(testScreenPoint(canvasLeft + (btnX - btnW / 2 - 40) * scale, centerScreenY), false, 'Outside left should miss');
 
-    // 7. Outside button (50px to the right)
-    assert.strictEqual(testScreenPoint(canvasLeft + (btnX + btnW / 2 + 50) * scale, centerScreenY), false, 'Outside right should miss');
+    // 7. Outside card (40px to the right)
+    assert.strictEqual(testScreenPoint(canvasLeft + (btnX + btnW / 2 + 40) * scale, centerScreenY), false, 'Outside right should miss');
   });
 
   check(`${vp.name}: Sound button (Circle hitArea) hits accurately`, () => {

@@ -1,68 +1,98 @@
 import Phaser from 'phaser';
 
 export interface BalloonTheme {
+  name: string;
+  label: string;
+  symbol: string;
   primary: string;
   secondary: string;
   highlight: string;
   shadow: string;
   stringColor: string;
+  hexNum: number;
 }
 
 export const BALLOON_COLORS: Record<string, BalloonTheme> = {
   red: {
+    name: 'red',
+    label: 'RED',
+    symbol: '●',
     primary: '#ef4444',
     secondary: '#dc2626',
     highlight: '#fca5a5',
     shadow: '#991b1b',
     stringColor: '#cbd5e1',
+    hexNum: 0xef4444,
   },
   blue: {
+    name: 'blue',
+    label: 'BLUE',
+    symbol: '◆',
     primary: '#0ea5e9',
     secondary: '#0284c7',
     highlight: '#7dd3fc',
     shadow: '#0369a1',
     stringColor: '#cbd5e1',
+    hexNum: 0x0ea5e9,
   },
   green: {
+    name: 'green',
+    label: 'GREEN',
+    symbol: '■',
     primary: '#10b981',
     secondary: '#059669',
     highlight: '#6ee7b7',
     shadow: '#047857',
     stringColor: '#cbd5e1',
+    hexNum: 0x10b981,
   },
-  pink: {
-    primary: '#ec4899',
-    secondary: '#db2777',
-    highlight: '#f9a8d4',
-    shadow: '#be185d',
+  yellow: {
+    name: 'yellow',
+    label: 'YELLOW',
+    symbol: '★',
+    primary: '#f59e0b',
+    secondary: '#d97706',
+    highlight: '#fde68a',
+    shadow: '#92400e',
     stringColor: '#cbd5e1',
+    hexNum: 0xf59e0b,
   },
   purple: {
-    primary: '#8b5cf6',
-    secondary: '#7c3aed',
-    highlight: '#c4b5fd',
-    shadow: '#6d28d9',
+    name: 'purple',
+    label: 'PURPLE',
+    symbol: '♥',
+    primary: '#a855f7',
+    secondary: '#9333ea',
+    highlight: '#e9d5ff',
+    shadow: '#6b21a8',
     stringColor: '#cbd5e1',
+    hexNum: 0xa855f7,
   },
 };
 
 export class AssetGenerator {
   public static generateAllTextures(scene: Phaser.Scene): void {
-    // 1. Generate normal balloons
-    Object.entries(BALLOON_COLORS).forEach(([colorName, theme]) => {
-      this.generateBalloonTexture(scene, `balloon_${colorName}`, theme);
+    // 1. Generate normal colored balloons
+    Object.entries(BALLOON_COLORS).forEach(([colorKey, theme]) => {
+      this.generateBalloonTexture(scene, `balloon_${colorKey}`, theme);
     });
 
     // 2. Generate Golden Balloon
     this.generateGoldenBalloonTexture(scene);
 
-    // 3. Generate Hazard Balloon
+    // 3. Generate Hazard / Bomb Balloon
     this.generateHazardBalloonTexture(scene);
 
-    // 4. Generate Particle Textures
+    // 4. Generate Rainbow Special Balloon
+    this.generateRainbowBalloonTexture(scene);
+
+    // 5. Generate Freeze Special Balloon
+    this.generateFreezeBalloonTexture(scene);
+
+    // 6. Generate Particle Textures
     this.generateParticleTextures(scene);
 
-    // 5. Generate UI & Icon Textures
+    // 7. Generate UI & Icon Textures (Sound, Pause, Hearts)
     this.generateUITextures(scene);
   }
 
@@ -96,7 +126,6 @@ export class AssetGenerator {
     ctx.beginPath();
     ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
 
-    // Radial 3D shading
     const grad = ctx.createRadialGradient(cx - 15, cy - 18, 5, cx, cy, rx);
     grad.addColorStop(0, theme.highlight);
     grad.addColorStop(0.35, theme.primary);
@@ -115,11 +144,20 @@ export class AssetGenerator {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
     ctx.fill();
 
-    // Smaller secondary highlight spot
+    // Secondary small highlight
     ctx.beginPath();
     ctx.arc(cx - 10, cy - 34, 4, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
     ctx.fill();
+
+    // Accessibility Symbol in center (subtle, readable)
+    ctx.save();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(theme.symbol, cx + 10, cy + 12);
+    ctx.restore();
 
     // Bottom tie knot
     ctx.beginPath();
@@ -146,7 +184,7 @@ export class AssetGenerator {
     const rx = 48;
     const ry = 60;
 
-    // Glowing golden string with curling tail
+    // Glowing golden string
     ctx.beginPath();
     ctx.moveTo(cx, cy + ry + 8);
     ctx.bezierCurveTo(cx - 18, cy + ry + 40, cx + 22, cy + ry + 70, cx, height - 12);
@@ -154,7 +192,7 @@ export class AssetGenerator {
     ctx.lineWidth = 3;
     ctx.stroke();
 
-    // Balloon Body with metallic gold gradient
+    // Metallic gold body
     ctx.save();
     ctx.beginPath();
     ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
@@ -178,7 +216,7 @@ export class AssetGenerator {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
     ctx.fill();
 
-    // Center star emblem
+    // Star emblem
     this.drawStar(ctx, cx, cy, 5, 16, 7, '#ffffff', '#ca8a04');
 
     // Tie knot
@@ -216,7 +254,7 @@ export class AssetGenerator {
     ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    // Dangerous outer spikes
+    // Spikes
     ctx.save();
     ctx.fillStyle = '#b91c1c';
     const spikeAngles = [-Math.PI * 0.75, -Math.PI * 0.5, -Math.PI * 0.25, Math.PI * 0.25, Math.PI * 0.75];
@@ -234,7 +272,7 @@ export class AssetGenerator {
     });
     ctx.restore();
 
-    // Balloon Body (Obsidian / Crimson)
+    // Obsidian/Crimson body
     ctx.save();
     ctx.beginPath();
     ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
@@ -251,10 +289,9 @@ export class AssetGenerator {
     ctx.fill();
     ctx.restore();
 
-    // Hazard skull / warning symbol in center
+    // Hazard symbol
     ctx.save();
     ctx.beginPath();
-    // Warning triangle
     const tw = 28;
     const th = 24;
     ctx.moveTo(cx, cy - th / 2);
@@ -264,7 +301,6 @@ export class AssetGenerator {
     ctx.fillStyle = '#fef08a';
     ctx.fill();
 
-    // Exclamation mark
     ctx.beginPath();
     ctx.rect(cx - 2.5, cy - 6, 5, 8);
     ctx.arc(cx, cy + 7, 2.5, 0, Math.PI * 2);
@@ -282,6 +318,135 @@ export class AssetGenerator {
     ctx.fill();
 
     scene.textures.addCanvas('balloon_hazard', canvas);
+  }
+
+  private static generateRainbowBalloonTexture(scene: Phaser.Scene): void {
+    const width = 130;
+    const height = 180;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d')!;
+
+    const cx = width / 2;
+    const cy = 65;
+    const rx = 48;
+    const ry = 60;
+
+    // Golden wavy string
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + ry + 8);
+    ctx.bezierCurveTo(cx - 16, cy + ry + 35, cx + 20, cy + ry + 65, cx, height - 12);
+    ctx.strokeStyle = '#fef08a';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Iridescent Rainbow Body
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+
+    const grad = ctx.createLinearGradient(cx - rx, cy - ry, cx + rx, cy + ry);
+    grad.addColorStop(0, '#f43f5e'); // Red-Pink
+    grad.addColorStop(0.25, '#fb923c'); // Orange
+    grad.addColorStop(0.5, '#facc15'); // Yellow
+    grad.addColorStop(0.75, '#4ade80'); // Green
+    grad.addColorStop(1, '#38bdf8'); // Cyan-Blue
+
+    ctx.fillStyle = grad;
+    ctx.shadowColor = 'rgba(255, 255, 255, 0.6)';
+    ctx.shadowBlur = 18;
+    ctx.fill();
+    ctx.restore();
+
+    // Specular shine
+    ctx.beginPath();
+    ctx.ellipse(cx - 18, cy - 24, 14, 20, -Math.PI / 6, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.fill();
+
+    // Central Rainbow Emblem (Rainbow Icon or Sparkle)
+    ctx.save();
+    ctx.font = 'bold 26px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🌈', cx, cy + 4);
+    ctx.restore();
+
+    // Tie knot
+    ctx.beginPath();
+    ctx.moveTo(cx - 9, cy + ry + 8);
+    ctx.lineTo(cx + 9, cy + ry + 8);
+    ctx.lineTo(cx, cy + ry - 1);
+    ctx.closePath();
+    ctx.fillStyle = '#fb923c';
+    ctx.fill();
+
+    scene.textures.addCanvas('balloon_rainbow', canvas);
+  }
+
+  private static generateFreezeBalloonTexture(scene: Phaser.Scene): void {
+    const width = 130;
+    const height = 180;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d')!;
+
+    const cx = width / 2;
+    const cy = 65;
+    const rx = 48;
+    const ry = 60;
+
+    // Ice-blue crystalline string
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + ry + 8);
+    ctx.bezierCurveTo(cx - 14, cy + ry + 35, cx + 18, cy + ry + 65, cx - 2, height - 12);
+    ctx.strokeStyle = '#bae6fd';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Glacial Ice Body
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+
+    const grad = ctx.createRadialGradient(cx - 15, cy - 20, 6, cx, cy, rx);
+    grad.addColorStop(0, '#ffffff');
+    grad.addColorStop(0.3, '#7dd3fc');
+    grad.addColorStop(0.7, '#0284c7');
+    grad.addColorStop(1, '#075985');
+
+    ctx.fillStyle = grad;
+    ctx.shadowColor = 'rgba(56, 189, 248, 0.7)';
+    ctx.shadowBlur = 18;
+    ctx.fill();
+    ctx.restore();
+
+    // Specular shine
+    ctx.beginPath();
+    ctx.ellipse(cx - 18, cy - 24, 14, 20, -Math.PI / 6, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+    ctx.fill();
+
+    // Snowflake Emblem in center
+    ctx.save();
+    ctx.font = 'bold 28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('❄️', cx, cy + 4);
+    ctx.restore();
+
+    // Tie knot
+    ctx.beginPath();
+    ctx.moveTo(cx - 9, cy + ry + 8);
+    ctx.lineTo(cx + 9, cy + ry + 8);
+    ctx.lineTo(cx, cy + ry - 1);
+    ctx.closePath();
+    ctx.fillStyle = '#0284c7';
+    ctx.fill();
+
+    scene.textures.addCanvas('balloon_freeze', canvas);
   }
 
   private static drawStar(
@@ -366,6 +531,18 @@ export class AssetGenerator {
     ctx4.fillStyle = g4;
     ctx4.fillRect(0, 0, 32, 32);
     scene.textures.addCanvas('particle_smoke', c4);
+
+    // 5. Snowflake Particle for freeze effect
+    const c5 = document.createElement('canvas');
+    c5.width = 20;
+    c5.height = 20;
+    const ctx5 = c5.getContext('2d')!;
+    ctx5.fillStyle = '#bae6fd';
+    ctx5.font = '14px sans-serif';
+    ctx5.textAlign = 'center';
+    ctx5.textBaseline = 'middle';
+    ctx5.fillText('❄', 10, 10);
+    scene.textures.addCanvas('particle_snowflake', c5);
   }
 
   private static generateUITextures(scene: Phaser.Scene): void {
@@ -375,7 +552,6 @@ export class AssetGenerator {
     soundOnCanvas.height = 44;
     const sOnCtx = soundOnCanvas.getContext('2d')!;
     sOnCtx.fillStyle = '#ffffff';
-    // Speaker cone
     sOnCtx.beginPath();
     sOnCtx.moveTo(10, 16);
     sOnCtx.lineTo(16, 16);
@@ -385,7 +561,6 @@ export class AssetGenerator {
     sOnCtx.lineTo(10, 28);
     sOnCtx.closePath();
     sOnCtx.fill();
-    // Sound waves
     sOnCtx.strokeStyle = '#ffffff';
     sOnCtx.lineWidth = 3;
     sOnCtx.beginPath();
@@ -402,7 +577,6 @@ export class AssetGenerator {
     soundOffCanvas.height = 44;
     const sOffCtx = soundOffCanvas.getContext('2d')!;
     sOffCtx.drawImage(soundOnCanvas, 0, 0);
-    // Strike line
     sOffCtx.strokeStyle = '#ef4444';
     sOffCtx.lineWidth = 4;
     sOffCtx.beginPath();
@@ -420,5 +594,29 @@ export class AssetGenerator {
     pCtx.fillRect(12, 10, 6, 24);
     pCtx.fillRect(26, 10, 6, 24);
     scene.textures.addCanvas('icon_pause', pauseCanvas);
+
+    // Heart Full Icon (Endless Lives)
+    const heartFullCanvas = document.createElement('canvas');
+    heartFullCanvas.width = 36;
+    heartFullCanvas.height = 36;
+    const hfCtx = heartFullCanvas.getContext('2d')!;
+    hfCtx.fillStyle = '#ef4444';
+    hfCtx.font = '26px sans-serif';
+    hfCtx.textAlign = 'center';
+    hfCtx.textBaseline = 'middle';
+    hfCtx.fillText('❤️', 18, 18);
+    scene.textures.addCanvas('icon_heart_full', heartFullCanvas);
+
+    // Heart Empty Icon (Lost Life)
+    const heartEmptyCanvas = document.createElement('canvas');
+    heartEmptyCanvas.width = 36;
+    heartEmptyCanvas.height = 36;
+    const heCtx = heartEmptyCanvas.getContext('2d')!;
+    heCtx.fillStyle = '#64748b';
+    heCtx.font = '26px sans-serif';
+    heCtx.textAlign = 'center';
+    heCtx.textBaseline = 'middle';
+    heCtx.fillText('🖤', 18, 18);
+    scene.textures.addCanvas('icon_heart_empty', heartEmptyCanvas);
   }
 }

@@ -6,7 +6,6 @@ export class SoundService {
   private masterGain: GainNode | null = null;
 
   private constructor() {
-    // Lazy AudioContext creation to satisfy autoplay policy
     this.setupUnlockListeners();
   }
 
@@ -82,10 +81,9 @@ export class SoundService {
     const pitchMultiplier = 1 + Math.min(combo - 1, 8) * 0.08;
     const baseFreq = 520 * pitchMultiplier;
 
-    // Oscillator 1: Rapid pitch sweep down
+    // Triangle pitch sweep
     const osc = this.ctx.createOscillator();
     const oscGain = this.ctx.createGain();
-
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(baseFreq, t);
     osc.frequency.exponentialRampToValueAtTime(80, t + 0.12);
@@ -99,7 +97,7 @@ export class SoundService {
     osc.start(t);
     osc.stop(t + 0.13);
 
-    // Noise burst for sharp "pop" transient
+    // Noise burst for sharp pop transient
     const bufferSize = Math.floor(this.ctx.sampleRate * 0.04);
     const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
     const data = buffer.getChannelData(0);
@@ -126,6 +124,150 @@ export class SoundService {
   }
 
   /**
+   * Tactile, high-pitched chime for Perfect Pops (near exact center)
+   */
+  public playPerfect(): void {
+    if (!this.isSoundEnabled()) return;
+    this.initContext();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1200, t);
+    osc.frequency.exponentialRampToValueAtTime(2400, t + 0.08);
+
+    gain.gain.setValueAtTime(0.35, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(t);
+    osc.stop(t + 0.15);
+  }
+
+  /**
+   * Distinct two-tone ascending chime when the active target color changes
+   */
+  public playColorSwitch(): void {
+    if (!this.isSoundEnabled()) return;
+    this.initContext();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const notes = [587.33, 880]; // D5, A5
+
+    notes.forEach((freq, i) => {
+      if (!this.ctx || !this.masterGain) return;
+      const start = t + i * 0.08;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, start);
+
+      gain.gain.setValueAtTime(0.35, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.22);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(start);
+      osc.stop(start + 0.24);
+    });
+  }
+
+  /**
+   * Crystalline ice freeze chime
+   */
+  public playFreeze(): void {
+    if (!this.isSoundEnabled()) return;
+    this.initContext();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const freqs = [1046.5, 1318.5, 1567.98, 2093.0]; // C6, E6, G6, C7
+
+    freqs.forEach((freq, idx) => {
+      if (!this.ctx || !this.masterGain) return;
+      const start = t + idx * 0.05;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, start);
+
+      gain.gain.setValueAtTime(0.28, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.35);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(start);
+      osc.stop(start + 0.36);
+    });
+  }
+
+  /**
+   * Prismatic rainbow shimmer glissando
+   */
+  public playRainbow(): void {
+    if (!this.isSoundEnabled()) return;
+    this.initContext();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, t);
+    osc.frequency.exponentialRampToValueAtTime(1760, t + 0.3);
+
+    gain.gain.setValueAtTime(0.4, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(t);
+    osc.stop(t + 0.36);
+  }
+
+  /**
+   * Triumphant fanfare when Fever Mode activates
+   */
+  public playFeverStart(): void {
+    if (!this.isSoundEnabled()) return;
+    this.initContext();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const chord = [523.25, 659.25, 783.99, 1046.5]; // C major triad + octave
+
+    chord.forEach((freq) => {
+      if (!this.ctx || !this.masterGain) return;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, t);
+
+      gain.gain.setValueAtTime(0.3, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(t);
+      osc.stop(t + 0.52);
+    });
+  }
+
+  /**
    * Shimmering, magical golden sparkle arpeggio
    */
   public playGold(): void {
@@ -134,7 +276,7 @@ export class SoundService {
     if (!this.ctx || !this.masterGain) return;
 
     const t = this.ctx.currentTime;
-    const notes = [880, 1108.73, 1318.51, 1760]; // A5, C#6, E6, A6
+    const notes = [880, 1108.73, 1318.51, 1760];
 
     notes.forEach((freq, idx) => {
       if (!this.ctx || !this.masterGain) return;
@@ -165,7 +307,6 @@ export class SoundService {
     if (!this.ctx || !this.masterGain) return;
 
     const t = this.ctx.currentTime;
-
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
 
@@ -181,6 +322,58 @@ export class SoundService {
 
     osc.start(t);
     osc.stop(t + 0.3);
+  }
+
+  /**
+   * Thump / life lost sound in Endless Rush
+   */
+  public playLifeLost(): void {
+    if (!this.isSoundEnabled()) return;
+    this.initContext();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(220, t);
+    osc.frequency.exponentialRampToValueAtTime(70, t + 0.22);
+
+    gain.gain.setValueAtTime(0.65, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(t);
+    osc.stop(t + 0.26);
+  }
+
+  /**
+   * Soft error thud for wrong color click
+   */
+  public playWrongColor(): void {
+    if (!this.isSoundEnabled()) return;
+    this.initContext();
+    if (!this.ctx || !this.masterGain) return;
+
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(180, t);
+    osc.frequency.linearRampToValueAtTime(110, t + 0.12);
+
+    gain.gain.setValueAtTime(0.4, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(t);
+    osc.stop(t + 0.15);
   }
 
   /**

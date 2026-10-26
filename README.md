@@ -1,43 +1,71 @@
 # POP RUSH 🎈⚡
 
-**POP RUSH** is a vibrant, fast-paced 2D arcade balloon popping browser game built with **Phaser 3**, **TypeScript**, and **Vite**. 
+**POP RUSH** is a vibrant, skill-based 2D arcade balloon popping browser game built with **Phaser 3**, **TypeScript**, and **Vite**.
 
-Designed for instant play on desktop, tablet, and mobile browsers with zero downloads or backend requirements.
-
----
-
-## 🎮 Game Features (Version 1 - Time Attack)
-
-- **30-Second Time Attack**: Race against the clock to rack up the highest score possible.
-- **Dynamic Floating Physics & Spawning**: Balloons rise naturally with sinusoidal swaying, subtle physics, and scale-in bounces within visible screen boundaries.
-- **Speed Combo Multiplier**: Pop balloons in quick succession (within 1.4 seconds) to trigger up to a **5x Score Multiplier**.
-- **Specialized Balloon Archetypes**:
-  - 🎈 **Normal Balloons** (5 vibrant colors): +100 pts $\times$ Combo multiplier.
-  - ⭐ **Golden Balloons** (Rare): +300 pts $\times$ Combo multiplier **+ 2 Seconds Time Bonus**!
-  - ⚠️ **Hazard Balloons** (Dangerous): Spiked obsidian/crimson balloons that deduct -200 pts, inflict a -3s penalty, and break active combos.
-- **Progressive Difficulty Scaling**: Spawn frequency and float velocity accelerate as the countdown ticks down, culminating in high-intensity **Rush Mode** in the final 10 seconds.
-- **Juicy Arcade Feedback**:
-  - High-res procedural vector balloon sprites with 3D specular shine and trailing strings.
-  - Dynamic confetti, star bursts, and smoke particles.
-  - Floating score indicators (`+100`, `+300 GOLD! +2s`, `-200 HAZARD!`).
-  - Screen shake and dramatic red impact flashes (disabled when Reduced Motion is active).
-  - Procedural Web Audio API sound synthesizer (pop with pitch-shifting combos, golden chimes, hazard warning crunch, countdown beeps, tick-tock clock, and fanfare).
-- **Persistent Personal Best & Settings**: High score, SFX toggles, volume presets, and reduced-motion preferences persist in `localStorage`.
-- **Full Input Support**: Instantaneous mouse clicking, 3-finger mobile multi-touch, and full keyboard navigation.
+Designed for instant, high-framerate play on desktop, tablet, and mobile browsers with zero downloads or backend requirements.
 
 ---
 
-## 🕹️ Controls
+## 🎯 Core Gameplay: COLOR RUSH
 
-| Action | Mouse / Touch | Keyboard |
+A prominent indicator at the top of the HUD displays the active target color:
+`POP RED ●`, `POP BLUE ◆`, `POP GREEN ■`, `POP YELLOW ★`, `POP PURPLE ♥`
+
+- **Matching Target**: Popping the designated color awards points, builds the speed combo multiplier, and charges your **Fever Gauge**.
+- **Distractions**: Non-matching balloons are decoys! In Time Attack, wrong-color pops deduct score and break combos. In Endless Rush, wrong-color pops cost 1 Life!
+- **Color Transitions**: Target colors change automatically at balanced intervals with distinct warning pulses, sound cues, and an immediate target availability guarantee.
+- **Fair Grace Period**: A 600ms transition buffer accepts taps on the previous target color during a switch, preventing unfair accidental penalties.
+
+---
+
+## 🕹️ Two Playable Game Modes
+
+### 1. ⏱️ TIME ATTACK (30s Countdown)
+- **Goal**: Score as many points as possible before the 30-second clock expires.
+- **Clock Extensions**: Pop **Golden Balloons** to add $+2\text{s}$ back to your timer!
+- **Final Rush**: High-intensity challenge in the final 10 seconds with accelerated float speeds and rapid spawns.
+
+### 2. ❤️ ENDLESS RUSH (Infinite Survival)
+- **Goal**: Survive as long as you can across progressive difficulty tiers with **3 Lives** (`❤️❤️❤️`).
+- **Life Penalties**:
+  - Popping a wrong-colored balloon costs 1 Life.
+  - Hitting a Bomb costs 1 Life.
+  - Allowing a valid target-color balloon to escape past the ceiling costs 1 Life.
+  - Non-target balloons escaping do *not* penalize you.
+- **Dynamic Escalation**: Survival clock tracks elapsed time; float speed, spawn cadence, and color-switch frequency steadily accelerate.
+
+---
+
+## ✨ Special Balloons & Skill Mechanics
+
+| Balloon | Visual Design | Effect / Rule |
 | :--- | :--- | :--- |
-| **Pop Balloon** | Click / Tap | - |
-| **Start / Play Again** | Tap Button | `Space` or `Enter` |
-| **Pause / Resume** | Tap Pause Icon | `P` or `Escape` |
-| **Menu Navigation** | Tap Buttons | `Arrow Up` / `Arrow Down` / `Enter` |
+| **Normal** | 5 Vibrant Colors (Red, Blue, Green, Yellow, Purple) with Accessibility Symbols | $+100\text{ pts} \times \text{combo}$ when matching target color. Decoy if non-matching. |
+| **Golden** | Shimmering Metallic Gold with Star Emblem | Universal bonus target! $+300\text{ pts} \times \text{combo}$ ($+2\text{s}$ in Time Attack). Always safe to pop! |
+| **Rainbow** | Iridescent Prism with Golden Knot | Universal WILD! Counts as matching any target color, $+250\text{ pts}$, and grants a major Fever charge boost! |
+| **Freeze** | Glacial Cyan Crystal with Snowflake Emblem | Slow-motion burst! Freezes all balloon velocities by 60% for 4 seconds ($+2\text{s}$ timer pause in Time Attack). |
+| **Bomb / Hazard** | Obsidian & Crimson Spikes with Warning Triangle | Dangerous! Inflicts $-200\text{ pts}$ & $-3\text{s}$ in Time Attack, or $-1\text{ Life}$ in Endless Rush. |
+
+### 💥 Accuracy-based "Perfect Pop"
+- Tapping a balloon near its visual center ($\le 22\text{px}$) triggers a **PERFECT POP!** bonus ($+50\text{ pts} \times \text{combo}$) with an extra Fever meter boost.
+
+### 🔥 5-Second Fever Mode
+- Chain correct pops and bullseyes to fill your Fever Gauge to 100%.
+- When unleashed, **ALL balloons become valid targets** with an automatic **$2\times$ Score Multiplier** and celebratory golden particles!
+
+---
+
+## 🕹️ Controls Reference
+
+| Action | Touch / Mouse | Keyboard |
+| :--- | :--- | :--- |
+| **Pop Balloon** | Click / Tap | — |
+| **Select Mode / Start** | Tap Mode Card | `Arrow Up` / `Arrow Down` + `Enter` |
+| **Play Again / Retry** | Tap Button | `Space` or `Enter` |
+| **Pause / Resume** | Tap Pause Button | `P` or `Escape` |
 | **How to Play** | Tap Button | `H` |
 | **Settings** | Tap Button | `S` |
-| **Fullscreen** | Tap Fullscreen Icon | - |
+| **Fullscreen** | Tap Fullscreen Icon | — |
 
 ---
 
@@ -45,74 +73,52 @@ Designed for instant play on desktop, tablet, and mobile browsers with zero down
 
 ```
 Balloon-pop-game/
-├── public/
-│   └── assets/              # Static game image assets (game.jpg, game2.jpg.png)
+├── public/assets/               # Backgrounds & static image assets
 ├── src/
 │   ├── entities/
-│   │   └── Balloon.ts       # Balloon entity, floating motion, sway, and pop animations
+│   │   └── Balloon.ts           # Balloon entity: normal, golden, rainbow, freeze, hazard
 │   ├── scenes/
-│   │   ├── BootScene.ts     # Preloader, procedural asset compilation, loading screen
-│   │   ├── MenuScene.ts     # Polished title screen, high score badge, button navigation
-│   │   ├── GameScene.ts     # Time Attack loop, combo meter, spawning, HUD & pause logic
-│   │   └── GameOverScene.ts # Results card, stat breakdown, instant retry, high score celebration
+│   │   ├── BootScene.ts         # Preload & procedural vector asset generation
+│   │   ├── MenuScene.ts         # Mode selector (Time Attack & Endless Rush), stats, controls
+│   │   ├── GameScene.ts         # Color Rush manager, Fever system, HUD, mode game loops
+│   │   └── GameOverScene.ts     # Mode-specific stats, records celebration, instant retry
 │   ├── services/
-│   │   ├── AssetGenerator.ts# Procedural vector texture synthesizer (balloons, icons, particles)
-│   │   ├── SoundService.ts  # Web Audio API arcade synthesizer (zero external audio dependencies)
-│   │   └── StorageService.ts# LocalStorage persistence for high scores & user settings
+│   │   ├── AssetGenerator.ts    # Procedural canvas vector graphics (balloons, hearts, icons)
+│   │   ├── ColorRushManager.ts  # Target color scheduler, transition fairness & grace period
+│   │   ├── FeverManager.ts      # Fever charging, 100% trigger, timer & 2x multiplier
+│   │   ├── SoundService.ts      # Web Audio procedural sound synthesizer (10+ arcade SFX)
+│   │   └── StorageService.ts    # LocalStorage persistence for both game modes & settings
 │   ├── ui/
-│   │   ├── FloatingText.ts  # Floating pop-up indicators
-│   │   └── GameModals.ts    # How to Play & Settings interactive modals
-│   └── main.ts              # Phaser 3 game initialization & responsive viewport scaling
-├── .github/workflows/
-│   └── static.yml           # GitHub Pages CI/CD pipeline (Node 20 + Vite build + deploy)
-├── index.html               # Main HTML entry with mobile viewport optimizations
-├── package.json             # Dependencies and build scripts
-├── tsconfig.json            # Strict TypeScript configuration
-└── vite.config.ts           # Vite configuration with relative base path resolution
+│   │   ├── FloatingText.ts      # Floating indicators (+100, PERFECT! +50, -1 LIFE, FEVER)
+│   │   └── GameModals.ts        # How to Play & Settings interactive modals
+│   └── main.ts                  # Phaser 3 responsive 720x1080 canvas scaling
+├── tests/
+│   ├── verify.cjs               # Automated game logic, Color Rush, Fever & Endless test suite
+│   └── viewport-scaling.test.cjs# Desktop & mobile responsive scaling and hit-area tests
+├── .github/workflows/static.yml # GitHub Pages CI/CD automated deployment
+├── index.html                   # HTML entry with 100dvh mobile viewport optimizations
+├── package.json                 # Scripts: dev, build, preview, test
+├── tsconfig.json                # Strict TypeScript configuration
+└── vite.config.ts               # Base relative path resolution
 ```
 
 ---
 
 ## 🚀 Local Development
 
-### Prerequisites
-- Node.js 18+ (tested on Node.js v20)
-- npm 9+
-
-### 1. Install Dependencies
 ```bash
+# Install dependencies
 npm install
-```
 
-### 2. Start Development Server
-```bash
+# Run automated test suites (Logic & Viewport Scaling)
+npm test
+
+# Start local development server with hot reload
 npm run dev
-```
-Open `http://localhost:3000` in your browser.
 
-### 3. Build for Production
-```bash
+# Compile production bundle
 npm run build
 ```
-Generates optimized, production-ready static assets in `dist/`.
-
-### 4. Preview Production Build
-```bash
-npm run preview
-```
-
----
-
-## 🌐 GitHub Pages Deployment
-
-The repository includes a GitHub Actions workflow in [`.github/workflows/static.yml`](.github/workflows/static.yml):
-1. Runs automatically on push to the `main` branch (or via manual workflow dispatch).
-2. Sets up Node.js 20, installs dependencies, and runs `npm run build`.
-3. Deploys the generated `dist/` directory directly to GitHub Pages.
-
-To ensure deployment works seamlessly:
-- In your GitHub repository settings, navigate to **Settings > Pages**.
-- Under **Build and deployment > Source**, select **GitHub Actions**.
 
 ---
 

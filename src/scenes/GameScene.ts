@@ -4,54 +4,94 @@ import { SoundService } from '../services/SoundService';
 import { StorageService } from '../services/StorageService';
 import { FloatingText } from '../ui/FloatingText';
 import { GameModals } from '../ui/GameModals';
+import { ColorRushManager } from '../services/ColorRushManager';
+import { FeverManager } from '../services/FeverManager';
+import { BalloonTheme, BALLOON_COLORS } from '../services/AssetGenerator';
+
+export type GameModeType = 'time_attack' | 'endless';
 
 export interface GameStats {
+  mode: GameModeType;
   score: number;
   highScore: number;
+  survivalTime: number; // in seconds
+  bestSurvivalTime: number; // in seconds
   balloonsPopped: number;
+  perfectPops: number;
   goldenPopped: number;
   hazardsHit: number;
   maxCombo: number;
-  isNewBest: boolean;
+  feverActivations: number;
+  isNewBestScore: boolean;
+  isNewBestTime: boolean;
 }
 
 export class GameScene extends Phaser.Scene {
+  // Mode configuration
+  private mode: GameModeType = 'time_attack';
+
   // Game State
   private score: number = 0;
   private displayedScore: number = 0;
-  private timeLeft: number = 30;
+  private timeLeft: number = 30; // Time Attack
+  private survivalTime: number = 0; // Endless
+  private lives: number = 3; // Endless
   private isPlaying: boolean = false;
   private isPaused: boolean = false;
   private isEnding: boolean = false;
   private isRushModeAnnounced: boolean = false;
 
-  // Combo System
+  // Combo & Fever
   private combo: number = 1;
   private maxCombo: number = 1;
   private comboTimer: number = 0;
   private readonly COMBO_WINDOW: number = 1.4;
+  private feverManager: FeverManager = new FeverManager();
+  private feverActivations: number = 0;
+
+  // Color Rush System
+  private colorRushManager!: ColorRushManager;
+  private targetColorBadge!: Phaser.GameObjects.Container;
+  private targetColorBg!: Phaser.GameObjects.Graphics;
+  private targetColorText!: Phaser.GameObjects.Text;
+  private targetColorProgressRing!: Phaser.GameObjects.Graphics;
+
+  // Freeze Mechanic
+  private isFreezeActive: boolean = false;
+  private freezeTimer: number = 0;
+  private freezeOverlay!: Phaser.GameObjects.Rectangle;
 
   // Stats Tracking
   private totalPopped: number = 0;
+  private perfectPops: number = 0;
   private goldenPopped: number = 0;
   private hazardsHit: number = 0;
 
-  // Spawning & Difficulty
+  // Spawning & Physics
   private spawnTimer: number = 0;
   private balloons: Balloon[] = [];
+  private forcedTargetSpawns: number = 0;
 
   // HUD Elements
-  private scoreText!: Phaser.GameObjects.Text;
   private timerText!: Phaser.GameObjects.Text;
   private timerRing!: Phaser.GameObjects.Graphics;
+  private heartSprites: Phaser.GameObjects.Sprite[] = [];
+  private scoreText!: Phaser.GameObjects.Text;
   private comboBadge!: Phaser.GameObjects.Container;
   private comboText!: Phaser.GameObjects.Text;
   private comboGauge!: Phaser.GameObjects.Graphics;
+  private feverBarBg!: Phaser.GameObjects.Graphics;
+  private feverBarFill!: Phaser.GameObjects.Graphics;
+  private feverLabel!: Phaser.GameObjects.Text;
   private pauseOverlay!: Phaser.GameObjects.Container;
   private soundBtnIcon!: Phaser.GameObjects.Sprite;
 
   constructor() {
     super({ key: 'GameScene' });
+  }
+
+  public init(data?: { mode?: GameModeType }): void {
+    this.mode = data?.mode || 'time_attack';
   }
 
   public create(): void {
@@ -61,6 +101,8 @@ export class GameScene extends Phaser.Scene {
     this.score = 0;
     this.displayedScore = 0;
     this.timeLeft = 30;
+    this.survivalTime = 0;
+    this.lives = 3;
     this.isPlaying = false;
     this.isPaused = false;
     this.isEnding = false;
@@ -68,22 +110,39 @@ export class GameScene extends Phaser.Scene {
     this.combo = 1;
     this.maxCombo = 1;
     this.comboTimer = 0;
+    this.feverActivations = 0;
+    this.isFreezeActive = false;
+    this.freezeTimer = 0;
     this.totalPopped = 0;
+    this.perfectPops = 0;
     this.goldenPopped = 0;
     this.hazardsHit = 0;
     this.spawnTimer = 0;
+    this.forcedTargetSpawns = 2; // Guarantee targets early
     this.balloons = [];
+    this.heartSprites = [];
+
+    // Initialize Managers
+    const switchInterval = this.mode === 'time_attack' ? 6.5 : 7.5;
+    this.colorRushManager = new ColorRushManager(switchInterval);
+    this.feverManager.reset();
+
+    this.setupColorRushCallbacks();
+    this.setupFeverCallbacks();
 
     // --- BACKGROUND ---
     this.createBackground(width, height);
 
-    // --- HUD (TOP BAR) ---
+    // --- FREEZE VISUAL OVERLAY ---
+    this.freezeOverlay = this.add.rectangle(width / 2, height / 2, width, height, 0x38bdf8, 0).setDepth(25);
+
+    // --- HUD (TOP BAR & COLOR RUSH INDICATOR) ---
     this.createHUD(width);
 
     // --- PAUSE OVERLAY ---
     this.createPauseOverlay(width, height);
 
-    // --- INPUT & KEYS ---
+    // --- INPUT HANDLING ---
     this.setupInput();
 
     // --- START COUNTDOWN ---
@@ -92,7 +151,7 @@ export class GameScene extends Phaser.Scene {
     // Fade in
     this.cameras.main.fadeIn(250, 15, 23, 42);
 
-    // Clean up all input listeners and active entities when shutting down
+    // Clean up on scene shutdown
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.keyboard?.removeAllListeners();
       this.input.removeAllListeners();
@@ -101,18 +160,61 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private setupColorRushCallbacks(): void {
+    const sound = SoundService.getInstance();
+
+    this.colorRushManager.setCallbacks(
+      (newColor: BalloonTheme, _prevColor: BalloonTheme) => {
+        sound.playColorSwitch();
+        this.updateTargetColorBadge(newColor);
+        this.announceColorSwitch(newColor);
+        // Force next spawns to be the new color so player always has available targets
+        this.forcedTargetSpawns = 2;
+      },
+      () => {
+        // Warning 1 second before switch: subtle pulse on badge
+        this.tweens.add({
+          targets: this.targetColorBadge,
+          scaleX: 1.12,
+          scaleY: 1.12,
+          duration: 200,
+          yoyo: true,
+          repeat: 2,
+        });
+      }
+    );
+  }
+
+  private setupFeverCallbacks(): void {
+    const sound = SoundService.getInstance();
+    const settings = StorageService.getInstance().getSettings();
+
+    this.feverManager.setCallbacks(
+      () => {
+        this.feverActivations++;
+        sound.playFeverStart();
+        this.announceFeverMode();
+        if (!settings.reducedMotion) {
+          this.cameras.main.shake(200, 0.012);
+        }
+      },
+      () => {
+        FloatingText.show(this, this.cameras.main.width / 2, 210, 'FEVER ENDED', '#94a3b8', '24px');
+      }
+    );
+  }
+
   private createBackground(width: number, height: number): void {
     if (this.textures.exists('bg_sky')) {
       const bg = this.add.image(width / 2, height / 2, 'bg_sky');
       const scaleX = width / bg.width;
       const scaleY = height / bg.height;
       bg.setScale(Math.max(scaleX, scaleY));
-      bg.setTint(0x7dd3fc);
+      bg.setTint(this.mode === 'endless' ? 0x64748b : 0x7dd3fc);
     } else {
       this.add.rectangle(width / 2, height / 2, width, height, 0x0284c7);
     }
 
-    // Dynamic gradient overlay
     const overlay = this.add.graphics();
     overlay.fillGradientStyle(0x0f172a, 0x0f172a, 0x0284c7, 0x0284c7, 0.45, 0.45, 0.15, 0.15);
     overlay.fillRect(0, 0, width, height);
@@ -121,53 +223,82 @@ export class GameScene extends Phaser.Scene {
   private createHUD(width: number): void {
     const hudContainer = this.add.container(0, 0).setDepth(100);
 
-    // Glassmorphic top bar background with hit-blocking to shield HUD area
+    // Glassmorphic top bar background (y: 0 to 110)
     const barBg = this.add.graphics();
-    barBg.fillStyle(0x0f172a, 0.88);
-    barBg.fillRect(0, 0, width, 100);
+    barBg.fillStyle(0x0f172a, 0.92);
+    barBg.fillRect(0, 0, width, 110);
     barBg.lineStyle(2, 0x334155, 1);
-    barBg.strokeLineShape(new Phaser.Geom.Line(0, 100, width, 100));
+    barBg.strokeLineShape(new Phaser.Geom.Line(0, 110, width, 110));
 
-    // Prevent pointer events on the HUD bar from propagating to gameplay objects
-    const hudShield = this.add.zone(width / 2, 50, width, 100);
-    hudShield.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, 100), Phaser.Geom.Rectangle.Contains);
-
+    // Shield zone to block accidental touches behind HUD
+    const hudShield = this.add.zone(width / 2, 55, width, 110);
+    hudShield.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, 110), Phaser.Geom.Rectangle.Contains);
     hudContainer.add([barBg, hudShield]);
 
-    // 1. TIMER DISPLAY (Left)
-    this.timerRing = this.add.graphics();
-    hudContainer.add(this.timerRing);
+    // 1. LEFT: MODE TIMER OR LIVES DISPLAY
+    if (this.mode === 'time_attack') {
+      this.timerRing = this.add.graphics();
+      hudContainer.add(this.timerRing);
 
-    const timerLabel = this.add.text(70, 24, 'TIME', {
+      const timerLabel = this.add.text(65, 24, 'TIME', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '13px',
+        color: '#94a3b8',
+        fontStyle: 'bold',
+        letterSpacing: 1,
+      }).setOrigin(0.5);
+
+      this.timerText = this.add.text(65, 58, '30s', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '32px',
+        fontStyle: 'bold',
+        color: '#38bdf8',
+      }).setOrigin(0.5);
+
+      hudContainer.add([timerLabel, this.timerText]);
+    } else {
+      // Endless Rush: Lives & Survival Clock
+      const livesLabel = this.add.text(70, 22, 'LIVES', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '12px',
+        color: '#94a3b8',
+        fontStyle: 'bold',
+        letterSpacing: 1,
+      }).setOrigin(0.5);
+
+      // 3 Heart sprites
+      for (let i = 0; i < 3; i++) {
+        const heart = this.add.sprite(42 + i * 28, 48, 'icon_heart_full').setScale(0.85);
+        this.heartSprites.push(heart);
+        hudContainer.add(heart);
+      }
+
+      this.timerText = this.add.text(70, 78, '00:00', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: '#38bdf8',
+      }).setOrigin(0.5);
+
+      hudContainer.add([livesLabel, this.timerText]);
+    }
+
+    // 2. CENTER: PROMINENT COLOR RUSH INDICATOR
+    this.createTargetColorBadge(width, hudContainer);
+
+    // 3. CENTER-RIGHT: SCORE DISPLAY
+    const scoreBox = this.add.container(width / 2 + 130, 48);
+    const scoreLabel = this.add.text(0, -20, 'SCORE', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '13px',
+      fontSize: '12px',
       color: '#94a3b8',
       fontStyle: 'bold',
       letterSpacing: 1,
     }).setOrigin(0.5);
 
-    this.timerText = this.add.text(70, 56, '30s', {
+    this.scoreText = this.add.text(0, 10, '0', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '32px',
-      fontStyle: 'bold',
-      color: '#38bdf8',
-    }).setOrigin(0.5);
-
-    hudContainer.add([timerLabel, this.timerText]);
-
-    // 2. SCORE DISPLAY (Center)
-    const scoreBox = this.add.container(width / 2, 50);
-    const scoreLabel = this.add.text(0, -26, 'SCORE', {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '13px',
-      color: '#94a3b8',
-      fontStyle: 'bold',
-      letterSpacing: 1,
-    }).setOrigin(0.5);
-
-    this.scoreText = this.add.text(0, 6, '0', {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '40px',
+      fontSize: '30px',
       fontStyle: 'bold',
       color: '#f8fafc',
     }).setOrigin(0.5);
@@ -175,39 +306,33 @@ export class GameScene extends Phaser.Scene {
     scoreBox.add([scoreLabel, this.scoreText]);
     hudContainer.add(scoreBox);
 
-    // 3. TOP ACTION BUTTONS (Right)
+    // 4. RIGHT: ACTION CONTROLS (Sound & Pause)
     const soundService = SoundService.getInstance();
 
-    // Sound Toggle (44x44, center in normalized space is 22, 22)
-    const soundBtn = this.add.container(width - 45, 50);
-    const soundBg = this.add.circle(0, 0, 22, 0x1e293b, 0.9);
+    const soundBtn = this.add.container(width - 38, 42);
+    const soundBg = this.add.circle(0, 0, 18, 0x1e293b, 0.9);
     soundBg.setStrokeStyle(2, 0x64748b);
-    this.soundBtnIcon = this.add.sprite(0, 0, soundService.isSoundEnabled() ? 'icon_sound_on' : 'icon_sound_off').setScale(0.7);
+    this.soundBtnIcon = this.add.sprite(0, 0, soundService.isSoundEnabled() ? 'icon_sound_on' : 'icon_sound_off').setScale(0.6);
 
     soundBtn.add([soundBg, this.soundBtnIcon]);
-    soundBtn.setSize(44, 44);
-    soundBtn.setInteractive(new Phaser.Geom.Circle(22, 22, 22), Phaser.Geom.Circle.Contains);
-    if (soundBtn.input) {
-      soundBtn.input.cursor = 'pointer';
-    }
+    soundBtn.setSize(36, 36);
+    soundBtn.setInteractive(new Phaser.Geom.Circle(18, 18, 18), Phaser.Geom.Circle.Contains);
+    if (soundBtn.input) soundBtn.input.cursor = 'pointer';
 
     soundBtn.on('pointerdown', () => {
       const enabled = soundService.toggleSound();
       this.soundBtnIcon.setTexture(enabled ? 'icon_sound_on' : 'icon_sound_off');
     });
 
-    // Pause Button (44x44, center in normalized space is 22, 22)
-    const pauseBtn = this.add.container(width - 100, 50);
-    const pauseBg = this.add.circle(0, 0, 22, 0x1e293b, 0.9);
+    const pauseBtn = this.add.container(width - 38, 80);
+    const pauseBg = this.add.circle(0, 0, 18, 0x1e293b, 0.9);
     pauseBg.setStrokeStyle(2, 0x64748b);
-    const pauseIcon = this.add.sprite(0, 0, 'icon_pause').setScale(0.7);
+    const pauseIcon = this.add.sprite(0, 0, 'icon_pause').setScale(0.6);
 
     pauseBtn.add([pauseBg, pauseIcon]);
-    pauseBtn.setSize(44, 44);
-    pauseBtn.setInteractive(new Phaser.Geom.Circle(22, 22, 22), Phaser.Geom.Circle.Contains);
-    if (pauseBtn.input) {
-      pauseBtn.input.cursor = 'pointer';
-    }
+    pauseBtn.setSize(36, 36);
+    pauseBtn.setInteractive(new Phaser.Geom.Circle(18, 18, 18), Phaser.Geom.Circle.Contains);
+    if (pauseBtn.input) pauseBtn.input.cursor = 'pointer';
 
     pauseBtn.on('pointerdown', () => {
       this.togglePause();
@@ -215,37 +340,170 @@ export class GameScene extends Phaser.Scene {
 
     hudContainer.add([soundBtn, pauseBtn]);
 
-    // 4. COMBO BADGE & DECAY METER (Floating under score)
-    this.comboBadge = this.add.container(width / 2, 130).setDepth(100);
+    // 5. UNDER HUD: COMBO & FEVER GAUGES
+    this.createComboAndFeverHUD(width);
+  }
+
+  private createTargetColorBadge(width: number, parent: Phaser.GameObjects.Container): void {
+    const activeTheme = this.colorRushManager.getActiveTheme();
+    this.targetColorBadge = this.add.container(width / 2 - 30, 52);
+
+    this.targetColorBg = this.add.graphics();
+    this.targetColorProgressRing = this.add.graphics();
+
+    this.targetColorText = this.add.text(0, 0, `POP ${activeTheme.label} ${activeTheme.symbol}`, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '22px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+      stroke: '#0f172a',
+      strokeThickness: 5,
+    }).setOrigin(0.5);
+
+    this.targetColorBadge.add([this.targetColorBg, this.targetColorProgressRing, this.targetColorText]);
+    parent.add(this.targetColorBadge);
+
+    this.updateTargetColorBadge(activeTheme);
+  }
+
+  private updateTargetColorBadge(theme: BalloonTheme): void {
+    this.targetColorBg.clear();
+
+    const badgeWidth = 200;
+    const badgeHeight = 52;
+
+    // Outer glow & filled pill
+    this.targetColorBg.fillStyle(theme.hexNum, 0.95);
+    this.targetColorBg.fillRoundedRect(-badgeWidth / 2, -badgeHeight / 2, badgeWidth, badgeHeight, 26);
+    this.targetColorBg.lineStyle(3, 0xffffff, 1);
+    this.targetColorBg.strokeRoundedRect(-badgeWidth / 2, -badgeHeight / 2, badgeWidth, badgeHeight, 26);
+
+    this.targetColorText.setText(`POP ${theme.label} ${theme.symbol}`);
+
+    // Subtle scale punch on color change
+    this.tweens.add({
+      targets: this.targetColorBadge,
+      scaleX: 1.15,
+      scaleY: 1.15,
+      duration: 140,
+      yoyo: true,
+      ease: 'Back.easeOut',
+    });
+  }
+
+  private announceColorSwitch(theme: BalloonTheme): void {
+    const { width, height } = this.cameras.main;
+    const banner = this.add.container(width / 2, height * 0.28).setDepth(150);
+
+    const bg = this.add.graphics();
+    bg.fillStyle(theme.hexNum, 0.92);
+    bg.fillRoundedRect(-160, -26, 320, 52, 26);
+    bg.lineStyle(3, 0xffffff, 1);
+    bg.strokeRoundedRect(-160, -26, 320, 52, 26);
+
+    const txt = this.add.text(0, 0, `TARGET: ${theme.label} ${theme.symbol}`, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '24px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+      stroke: '#0f172a',
+      strokeThickness: 4,
+    }).setOrigin(0.5);
+
+    banner.add([bg, txt]);
+    banner.setScale(0.5);
+
+    this.tweens.add({
+      targets: banner,
+      scaleX: 1.1,
+      scaleY: 1.1,
+      duration: 220,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: banner,
+          alpha: 0,
+          y: height * 0.25,
+          duration: 350,
+          delay: 350,
+          onComplete: () => banner.destroy(),
+        });
+      },
+    });
+  }
+
+  private createComboAndFeverHUD(width: number): void {
+    // Floating Combo Badge
+    this.comboBadge = this.add.container(width / 2 - 90, 138).setDepth(100);
 
     const comboBg = this.add.graphics();
     comboBg.fillStyle(0x1e1b4b, 0.9);
-    comboBg.fillRoundedRect(-75, -20, 150, 40, 20);
+    comboBg.fillRoundedRect(-65, -16, 130, 32, 16);
     comboBg.lineStyle(2, 0xf59e0b, 1);
-    comboBg.strokeRoundedRect(-75, -20, 150, 40, 20);
+    comboBg.strokeRoundedRect(-65, -16, 130, 32, 16);
 
     this.comboText = this.add.text(0, -2, 'COMBO x1', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '20px',
+      fontSize: '17px',
       fontStyle: 'bold',
       color: '#fef08a',
     }).setOrigin(0.5);
 
     this.comboGauge = this.add.graphics();
-
     this.comboBadge.add([comboBg, this.comboGauge, this.comboText]);
     this.comboBadge.setAlpha(0);
+
+    // Floating Fever Gauge (Right of combo badge)
+    const feverContainer = this.add.container(width / 2 + 90, 138).setDepth(100);
+
+    this.feverBarBg = this.add.graphics();
+    this.feverBarBg.fillStyle(0x1e1b4b, 0.9);
+    this.feverBarBg.fillRoundedRect(-65, -16, 130, 32, 16);
+    this.feverBarBg.lineStyle(2, 0xf43f5e, 1);
+    this.feverBarBg.strokeRoundedRect(-65, -16, 130, 32, 16);
+
+    this.feverBarFill = this.add.graphics();
+
+    this.feverLabel = this.add.text(0, -2, 'FEVER: 0%', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '15px',
+      fontStyle: 'bold',
+      color: '#fb7185',
+    }).setOrigin(0.5);
+
+    feverContainer.add([this.feverBarBg, this.feverBarFill, this.feverLabel]);
+  }
+
+  private announceFeverMode(): void {
+    const { width, height } = this.cameras.main;
+    const banner = this.add.text(width / 2, height * 0.35, '🔥 FEVER MODE! 2X POINTS! 🔥', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '32px',
+      fontStyle: 'bold',
+      color: '#fef08a',
+      stroke: '#b45309',
+      strokeThickness: 8,
+      align: 'center',
+    }).setOrigin(0.5).setDepth(150);
+
+    this.tweens.add({
+      targets: banner,
+      scaleX: 1.25,
+      scaleY: 1.25,
+      duration: 300,
+      yoyo: true,
+      repeat: 2,
+      onComplete: () => banner.destroy(),
+    });
   }
 
   private createPauseOverlay(width: number, height: number): void {
     this.pauseOverlay = this.add.container(0, 0).setDepth(300).setVisible(false);
 
-    // Dim backdrop - blocks game clicks
     const bg = this.add.rectangle(width / 2, height / 2, width, height, 0x0f172a, 0.88);
     bg.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, height), Phaser.Geom.Rectangle.Contains);
     this.pauseOverlay.add(bg);
 
-    // Card
     const cardWidth = Math.min(width * 0.85, 460);
     const cardHeight = 440;
     const card = this.add.graphics();
@@ -255,7 +513,6 @@ export class GameScene extends Phaser.Scene {
     card.strokeRoundedRect(width / 2 - cardWidth / 2, height / 2 - cardHeight / 2, cardWidth, cardHeight, 24);
     this.pauseOverlay.add(card);
 
-    // Title
     const title = this.add.text(width / 2, height / 2 - cardHeight / 2 + 55, 'GAME PAUSED', {
       fontFamily: "'Fredoka', sans-serif",
       fontSize: '34px',
@@ -264,7 +521,6 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5);
     this.pauseOverlay.add(title);
 
-    // Buttons: Resume, Restart, Settings, Quit
     const btnData = [
       { text: 'RESUME', color: 0x10b981, action: () => this.togglePause() },
       { text: 'RESTART', color: 0x0284c7, action: () => this.restartGame() },
@@ -297,12 +553,8 @@ export class GameScene extends Phaser.Scene {
 
       btn.add([bBg, bTxt]);
       btn.setSize(220, 48);
-
-      // HitArea matches normalized container coordinates
       btn.setInteractive(new Phaser.Geom.Rectangle(0, 0, 220, 48), Phaser.Geom.Rectangle.Contains);
-      if (btn.input) {
-        btn.input.cursor = 'pointer';
-      }
+      if (btn.input) btn.input.cursor = 'pointer';
 
       btn.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
         if (pointer.button !== 0 && pointer.button !== undefined) return;
@@ -375,90 +627,214 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupInput(): void {
-    // Keyboard shortcuts
     this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
       if (event.code === 'KeyP' || event.code === 'Escape') {
         this.togglePause();
       }
     });
 
-    // Tap/Click handling on balloons
     this.input.on('gameobjectdown', (pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.GameObject) => {
       if (pointer.button !== 0 && pointer.button !== undefined) return;
       if (!this.isPlaying || this.isPaused || this.isEnding) return;
       if (gameObject instanceof Balloon) {
-        this.handleBalloonPop(gameObject);
+        this.handleBalloonPop(gameObject, pointer);
       }
     });
   }
 
-  private handleBalloonPop(balloon: Balloon): void {
+  private handleBalloonPop(balloon: Balloon, pointer?: Phaser.Input.Pointer): void {
     if (balloon.isPopped) return;
-    // Trigger pop destruction & animation immediately (sets isPopped = true and disables interactivity)
     balloon.pop();
 
     const sound = SoundService.getInstance();
     const settings = StorageService.getInstance().getSettings();
-
     const bx = balloon.x;
     const by = balloon.y;
     const type = balloon.balloonType;
+    const currentTime = this.time.now;
 
-    if (type === 'normal') {
+    // Check Accuracy-based "Perfect Pop" (distance from visual body center at y - 25)
+    let isPerfect = false;
+    if (pointer) {
+      const dist = Phaser.Math.Distance.Between(pointer.worldX, pointer.worldY, bx, by - 25);
+      if (dist <= 22) {
+        isPerfect = true;
+        this.perfectPops++;
+        sound.playPerfect();
+        FloatingText.show(this, bx, by - 40, 'PERFECT! +50', '#fef08a', '26px');
+        this.feverManager.addCharge(25);
+      }
+    }
+
+    const feverActive = this.feverManager.isActive();
+    const feverMultiplier = feverActive ? 2 : 1;
+
+    // --- 1. SPECIAL BALLOONS ---
+    if (type === 'golden') {
+      this.totalPopped++;
+      this.goldenPopped++;
+      this.refreshCombo();
+
+      const earned = (balloon.scoreValue + (isPerfect ? 50 : 0)) * this.combo * feverMultiplier;
+      this.addScore(earned);
+
+      if (this.mode === 'time_attack') {
+        this.addTime(2);
+      }
+      this.feverManager.addCharge(30);
+
+      sound.playGold();
+      this.createGoldSparkles(bx, by);
+      FloatingText.show(this, bx, by, `+${earned}${this.mode === 'time_attack' ? ' & +2s!' : ''}`, '#fef08a', '32px');
+
+      if (!settings.reducedMotion) this.cameras.main.shake(140, 0.008);
+      return;
+    }
+
+    if (type === 'rainbow') {
       this.totalPopped++;
       this.refreshCombo();
 
-      const earned = balloon.scoreValue * this.combo;
+      const earned = (balloon.scoreValue + (isPerfect ? 50 : 0)) * this.combo * feverMultiplier;
+      this.addScore(earned);
+      this.feverManager.addCharge(35);
+
+      sound.playRainbow();
+      this.createRainbowParticles(bx, by);
+      FloatingText.show(this, bx, by, `RAINBOW! +${earned}`, '#38bdf8', '32px');
+      return;
+    }
+
+    if (type === 'freeze') {
+      this.totalPopped++;
+      this.refreshCombo();
+
+      const earned = (balloon.scoreValue + (isPerfect ? 50 : 0)) * this.combo * feverMultiplier;
+      this.addScore(earned);
+      this.activateFreeze();
+
+      sound.playFreeze();
+      this.createFreezeParticles(bx, by);
+      FloatingText.show(this, bx, by, 'FREEZE! ❄️', '#7dd3fc', '32px');
+      return;
+    }
+
+    if (type === 'hazard') {
+      this.hazardsHit++;
+      this.breakCombo();
+      this.feverManager.deductCharge(25);
+      sound.playHazard();
+      this.createHazardParticles(bx, by);
+
+      if (this.mode === 'time_attack') {
+        this.deductScore(200);
+        this.deductTime(3);
+        FloatingText.show(this, bx, by, '-200 & -3s!', '#ef4444', '32px');
+      } else {
+        // Endless Mode: Hitting bomb costs 1 life
+        this.deductLife('BOMB HIT!');
+      }
+
+      if (!settings.reducedMotion) {
+        this.cameras.main.shake(250, 0.02);
+        this.cameras.main.flash(200, 239, 68, 68);
+      }
+      return;
+    }
+
+    // --- 2. NORMAL BALLOONS (COLOR RUSH MATCHING) ---
+    const matchCheck = this.colorRushManager.isMatchingColor(balloon.colorKey, currentTime);
+    const isValidTarget = matchCheck.isMatch || feverActive;
+
+    if (isValidTarget) {
+      this.totalPopped++;
+      this.refreshCombo();
+      this.feverManager.addCharge(14);
+
+      const theme = BALLOON_COLORS[balloon.colorKey] || BALLOON_COLORS.red;
+      const earned = (balloon.scoreValue + (isPerfect ? 50 : 0)) * this.combo * feverMultiplier;
       this.addScore(earned);
 
       sound.playPop(this.combo);
-      this.createPopParticles(bx, by, 0xec4899);
+      this.createPopParticles(bx, by, theme.hexNum);
 
       FloatingText.show(
         this,
         bx,
         by,
         `+${earned}${this.combo > 1 ? ` (x${this.combo})` : ''}`,
-        '#fbcfe8',
+        theme.highlight,
         this.combo >= 3 ? '32px' : '26px'
       );
 
       if (this.combo >= 4 && !settings.reducedMotion) {
         this.cameras.main.shake(120, 0.005);
       }
-    } else if (type === 'golden') {
-      this.totalPopped++;
-      this.goldenPopped++;
-      this.refreshCombo();
-
-      const earned = balloon.scoreValue * this.combo;
-      this.addScore(earned);
-      this.addTime(2);
-
-      sound.playGold();
-      this.createGoldSparkles(bx, by);
-
-      FloatingText.show(this, bx, by, `+${earned} & +2s!`, '#fef08a', '32px');
-
-      if (!settings.reducedMotion) {
-        this.cameras.main.shake(150, 0.008);
-      }
-    } else if (type === 'hazard') {
-      this.hazardsHit++;
+    } else {
+      // WRONG COLOR POPPED!
       this.breakCombo();
+      this.feverManager.deductCharge(20);
 
-      this.deductScore(200);
-      this.deductTime(3);
-
-      sound.playHazard();
-      this.createHazardParticles(bx, by);
-
-      FloatingText.show(this, bx, by, '-200 & -3s!', '#ef4444', '32px');
-
-      if (!settings.reducedMotion) {
-        this.cameras.main.shake(250, 0.018);
-        this.cameras.main.flash(200, 239, 68, 68);
+      if (this.mode === 'time_attack') {
+        this.deductScore(100);
+        sound.playWrongColor();
+        FloatingText.show(this, bx, by, 'WRONG COLOR! -100', '#ef4444', '28px');
+        if (!settings.reducedMotion) this.cameras.main.shake(140, 0.008);
+      } else {
+        // Endless Mode: Wrong color pop costs 1 life!
+        this.deductLife('WRONG COLOR!');
       }
+    }
+  }
+
+  private handleBalloonEscape(balloon: Balloon): void {
+    if (this.mode !== 'endless' || !this.isPlaying || this.isEnding) return;
+
+    // In Endless, letting an active target color balloon escape costs 1 life
+    if (balloon.balloonType === 'normal' && balloon.colorKey === this.colorRushManager.getActiveColorKey()) {
+      if (!this.feverManager.isActive()) {
+        this.deductLife('TARGET ESCAPED!');
+      }
+    }
+  }
+
+  private deductLife(reason: string): void {
+    this.lives = Math.max(0, this.lives - 1);
+    SoundService.getInstance().playLifeLost();
+
+    // Update heart icons
+    this.heartSprites.forEach((heart, idx) => {
+      if (idx >= this.lives) {
+        heart.setTexture('icon_heart_empty');
+      }
+    });
+
+    FloatingText.show(this, this.cameras.main.width / 2, 190, `${reason} -1 LIFE`, '#ef4444', '30px');
+
+    const settings = StorageService.getInstance().getSettings();
+    if (!settings.reducedMotion) {
+      this.cameras.main.shake(220, 0.015);
+      this.cameras.main.flash(180, 239, 68, 68);
+    }
+
+    if (this.lives <= 0) {
+      this.endGame();
+    }
+  }
+
+  private activateFreeze(): void {
+    this.isFreezeActive = true;
+    this.freezeTimer = 4.0;
+    this.balloons.forEach((b) => b.setFrozen(true));
+
+    this.tweens.add({
+      targets: this.freezeOverlay,
+      fillAlpha: 0.25,
+      duration: 200,
+    });
+
+    if (this.mode === 'time_attack') {
+      this.addTime(2); // Bonus time freeze
     }
   }
 
@@ -504,20 +880,23 @@ export class GameScene extends Phaser.Scene {
 
   private addTime(seconds: number): void {
     this.timeLeft += seconds;
-    this.timerText.setText(`${Math.ceil(this.timeLeft)}s`);
-
-    this.tweens.add({
-      targets: this.timerText,
-      scaleX: 1.25,
-      scaleY: 1.25,
-      duration: 120,
-      yoyo: true,
-    });
+    if (this.timerText) {
+      this.timerText.setText(`${Math.ceil(this.timeLeft)}s`);
+      this.tweens.add({
+        targets: this.timerText,
+        scaleX: 1.25,
+        scaleY: 1.25,
+        duration: 120,
+        yoyo: true,
+      });
+    }
   }
 
   private deductTime(seconds: number): void {
     this.timeLeft = Math.max(0, this.timeLeft - seconds);
-    this.timerText.setText(`${Math.ceil(this.timeLeft)}s`);
+    if (this.timerText) {
+      this.timerText.setText(`${Math.ceil(this.timeLeft)}s`);
+    }
   }
 
   public update(time: number, delta: number): void {
@@ -525,49 +904,87 @@ export class GameScene extends Phaser.Scene {
 
     const dt = delta / 1000;
 
-    // 1. UPDATE TIMER
-    this.timeLeft -= dt;
-    if (this.timeLeft <= 0) {
-      this.timeLeft = 0;
-      this.endGame();
-      return;
-    }
+    // 1. UPDATE MODE CLOCKS
+    if (this.mode === 'time_attack') {
+      this.timeLeft -= dt;
+      if (this.timeLeft <= 0) {
+        this.timeLeft = 0;
+        this.endGame();
+        return;
+      }
 
-    const ceilTime = Math.ceil(this.timeLeft);
-    this.timerText.setText(`${ceilTime}s`);
+      const ceilTime = Math.ceil(this.timeLeft);
+      this.timerText.setText(`${ceilTime}s`);
 
-    // Warning state when time is low (< 6s)
-    if (this.timeLeft <= 5.0) {
-      this.timerText.setColor('#ef4444');
-      if (Math.floor(this.timeLeft) !== Math.floor(this.timeLeft + dt)) {
-        SoundService.getInstance().playTick();
-        this.tweens.add({
-          targets: this.timerText,
-          scaleX: 1.2,
-          scaleY: 1.2,
-          duration: 100,
-          yoyo: true,
-        });
+      if (this.timeLeft <= 5.0) {
+        this.timerText.setColor('#ef4444');
+        if (Math.floor(this.timeLeft) !== Math.floor(this.timeLeft + dt)) {
+          SoundService.getInstance().playTick();
+          this.tweens.add({
+            targets: this.timerText,
+            scaleX: 1.2,
+            scaleY: 1.2,
+            duration: 100,
+            yoyo: true,
+          });
+        }
+      } else {
+        this.timerText.setColor('#38bdf8');
+      }
+
+      if (this.timeLeft <= 10 && !this.isRushModeAnnounced) {
+        this.isRushModeAnnounced = true;
+        this.announceRushMode();
       }
     } else {
-      this.timerText.setColor('#38bdf8');
+      // Endless Rush Clock
+      this.survivalTime += dt;
+      const m = Math.floor(this.survivalTime / 60);
+      const s = Math.floor(this.survivalTime % 60);
+      this.timerText.setText(`${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`);
     }
 
-    // 2. UPDATE COMBO DECAY
+    // 2. UPDATE COLOR RUSH SYSTEM
+    // In endless mode, switch interval scales down as survival time increases
+    if (this.mode === 'endless') {
+      const scaledInterval = Math.max(4.2, 7.5 - (this.survivalTime / 60) * 1.5);
+      this.colorRushManager.setInterval(scaledInterval);
+    }
+    this.colorRushManager.update(dt, time);
+
+    // 3. UPDATE FEVER SYSTEM
+    this.feverManager.update(dt);
+    this.updateFeverHUD();
+
+    // 4. UPDATE FREEZE TIMER
+    if (this.isFreezeActive) {
+      this.freezeTimer -= dt;
+      if (this.freezeTimer <= 0) {
+        this.isFreezeActive = false;
+        this.balloons.forEach((b) => b.setFrozen(false));
+        this.tweens.add({
+          targets: this.freezeOverlay,
+          fillAlpha: 0,
+          duration: 300,
+        });
+      }
+    }
+
+    // 5. UPDATE COMBO DECAY
     if (this.combo > 1) {
       this.comboTimer -= dt;
       const progress = Math.max(0, this.comboTimer / this.COMBO_WINDOW);
 
       this.comboGauge.clear();
       this.comboGauge.fillStyle(0xf59e0b, 1);
-      this.comboGauge.fillRoundedRect(-70, 12, 140 * progress, 5, 2);
+      this.comboGauge.fillRoundedRect(-60, 10, 120 * progress, 4, 2);
 
       if (this.comboTimer <= 0) {
         this.breakCombo();
       }
     }
 
-    // 3. SMOOTH SCORE ROLLING
+    // 6. ROLLING SCORE
     if (this.displayedScore < this.score) {
       const step = Math.ceil((this.score - this.displayedScore) * 0.15);
       this.displayedScore += step;
@@ -577,13 +994,7 @@ export class GameScene extends Phaser.Scene {
       this.scoreText.setText(this.displayedScore.toLocaleString());
     }
 
-    // 4. ANNOUNCE RUSH MODE AT FINAL 10 SECONDS
-    if (this.timeLeft <= 10 && !this.isRushModeAnnounced) {
-      this.isRushModeAnnounced = true;
-      this.announceRushMode();
-    }
-
-    // 5. BALLOON SPAWN SCHEDULER
+    // 7. SPAWN SCHEDULER
     this.spawnTimer += dt;
     const spawnInterval = this.getSpawnInterval();
 
@@ -592,7 +1003,7 @@ export class GameScene extends Phaser.Scene {
       this.spawnBalloon();
     }
 
-    // 6. UPDATE BALLOONS
+    // 8. UPDATE ACTIVE BALLOONS
     for (let i = this.balloons.length - 1; i >= 0; i--) {
       const b = this.balloons[i];
       const alive = b.update(time, delta);
@@ -602,17 +1013,43 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private updateFeverHUD(): void {
+    const charge = this.feverManager.getCharge();
+    const isFever = this.feverManager.isActive();
+
+    this.feverBarFill.clear();
+
+    if (isFever) {
+      const progress = this.feverManager.getRemainingTime() / 5.0;
+      this.feverBarFill.fillStyle(0xfbbf24, 1);
+      this.feverBarFill.fillRoundedRect(-60, -12, 120 * progress, 24, 12);
+      this.feverLabel.setText('🔥 FEVER ACTIVE!');
+      this.feverLabel.setColor('#0f172a');
+    } else {
+      this.feverBarFill.fillStyle(0xf43f5e, 0.85);
+      this.feverBarFill.fillRoundedRect(-60, -12, 120 * (charge / 100), 24, 12);
+      this.feverLabel.setText(`FEVER: ${Math.floor(charge)}%`);
+      this.feverLabel.setColor('#ffffff');
+    }
+  }
+
   private getSpawnInterval(): number {
-    if (this.timeLeft > 20) return 0.8;
-    if (this.timeLeft > 10) return 0.6;
-    return 0.42;
+    if (this.mode === 'time_attack') {
+      if (this.timeLeft > 20) return 0.75;
+      if (this.timeLeft > 10) return 0.55;
+      return 0.4;
+    } else {
+      // Endless: scales with survival time
+      const difficultyFactor = Math.min(1, this.survivalTime / 90);
+      return 0.8 - difficultyFactor * 0.38; // 0.8s down to 0.42s
+    }
   }
 
   private announceRushMode(): void {
     const { width, height } = this.cameras.main;
-    const banner = this.add.text(width / 2, height * 0.4, '⚡ RUSH MODE! ⚡', {
+    const banner = this.add.text(width / 2, height * 0.4, '⚡ FINAL RUSH! ⚡', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '48px',
+      fontSize: '44px',
       fontStyle: 'bold',
       color: '#fef08a',
       stroke: '#b45309',
@@ -636,32 +1073,54 @@ export class GameScene extends Phaser.Scene {
 
   private spawnBalloon(): void {
     const { width, height } = this.cameras.main;
+    const activeTargetKey = this.colorRushManager.getActiveColorKey();
 
     let type: BalloonType = 'normal';
+    let colorKey = activeTargetKey;
+
     const roll = Math.random();
 
-    if (this.timeLeft > 20) {
-      type = roll < 0.12 ? 'golden' : 'normal';
-    } else if (this.timeLeft > 10) {
-      if (roll < 0.1) type = 'hazard';
-      else if (roll < 0.25) type = 'golden';
-      else type = 'normal';
+    // Forced Target Spawn guarantee (after color switch)
+    if (this.forcedTargetSpawns > 0) {
+      this.forcedTargetSpawns--;
+      type = 'normal';
+      colorKey = activeTargetKey;
     } else {
-      if (roll < 0.15) type = 'hazard';
-      else if (roll < 0.35) type = 'golden';
-      else type = 'normal';
+      // Special Balloon Spawning probabilities
+      if (roll < 0.08) {
+        type = 'golden';
+      } else if (roll < 0.13) {
+        type = 'rainbow';
+      } else if (roll < 0.18) {
+        type = 'freeze';
+      } else if (roll < 0.28) {
+        type = 'hazard';
+      } else {
+        // Normal colored balloons
+        type = 'normal';
+        // 50% chance to match the active target color; 50% distributed among other colors
+        if (Math.random() < 0.5) {
+          colorKey = activeTargetKey;
+        } else {
+          const colors = ['red', 'blue', 'green', 'yellow', 'purple'];
+          colorKey = colors[Math.floor(Math.random() * colors.length)];
+        }
+      }
     }
 
-    const colors = ['red', 'blue', 'green', 'pink', 'purple'];
-    const colorKey = colors[Math.floor(Math.random() * colors.length)];
-
+    // Speed calculation
     let baseSpeed = 230;
-    if (this.timeLeft <= 20) baseSpeed = 290;
-    if (this.timeLeft <= 10) baseSpeed = 360;
-    const speed = baseSpeed + Phaser.Math.Between(-30, 40);
+    if (this.mode === 'time_attack') {
+      if (this.timeLeft <= 20) baseSpeed = 290;
+      if (this.timeLeft <= 10) baseSpeed = 360;
+    } else {
+      // Endless: scales up with survival time
+      const difficulty = Math.min(1, this.survivalTime / 120);
+      baseSpeed = 220 + difficulty * 130; // 220 to 350
+    }
+    const speed = baseSpeed + Phaser.Math.Between(-25, 35);
 
-    // Balloons spawn below the canvas and rise within the boundaries
-    const startX = Phaser.Math.Between(75, width - 75);
+    const startX = Phaser.Math.Between(80, width - 80);
     const startY = height + 80;
 
     const balloon = new Balloon(this, {
@@ -672,11 +1131,18 @@ export class GameScene extends Phaser.Scene {
       swayFrequency: Phaser.Math.FloatBetween(1.8, 2.6),
       startX,
       startY,
-      scoreValue: type === 'golden' ? 300 : type === 'hazard' ? -200 : 100,
+      scoreValue: type === 'golden' ? 300 : type === 'rainbow' ? 250 : type === 'freeze' ? 150 : type === 'hazard' ? -200 : 100,
+      onEscape: (b) => this.handleBalloonEscape(b),
     });
+
+    if (this.isFreezeActive) {
+      balloon.setFrozen(true);
+    }
 
     this.balloons.push(balloon);
   }
+
+  // --- PARTICLE EMITTERS ---
 
   private createPopParticles(x: number, y: number, color: number): void {
     const settings = StorageService.getInstance().getSettings();
@@ -690,13 +1156,11 @@ export class GameScene extends Phaser.Scene {
 
       const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
       const speed = Phaser.Math.FloatBetween(90, 240);
-      const vx = Math.cos(angle) * speed;
-      const vy = Math.sin(angle) * speed;
 
       this.tweens.add({
         targets: p,
-        x: x + vx,
-        y: y + vy,
+        x: x + Math.cos(angle) * speed,
+        y: y + Math.sin(angle) * speed,
         rotation: Phaser.Math.FloatBetween(-3, 3),
         alpha: 0,
         scaleX: 0.2,
@@ -729,6 +1193,51 @@ export class GameScene extends Phaser.Scene {
         duration: Phaser.Math.Between(400, 650),
         ease: 'Back.easeOut',
         onComplete: () => star.destroy(),
+      });
+    }
+  }
+
+  private createRainbowParticles(x: number, y: number): void {
+    const colors = [0xf43f5e, 0xfb923c, 0xfacc15, 0x4ade80, 0x38bdf8, 0xa855f7];
+    for (let i = 0; i < 18; i++) {
+      const p = this.add.sprite(x, y, 'particle_star');
+      p.setTint(colors[i % colors.length]);
+      p.setScale(Phaser.Math.FloatBetween(0.6, 1.1));
+      p.setDepth(45);
+
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const dist = Phaser.Math.FloatBetween(70, 220);
+
+      this.tweens.add({
+        targets: p,
+        x: x + Math.cos(angle) * dist,
+        y: y + Math.sin(angle) * dist,
+        alpha: 0,
+        duration: 500,
+        ease: 'Cubic.easeOut',
+        onComplete: () => p.destroy(),
+      });
+    }
+  }
+
+  private createFreezeParticles(x: number, y: number): void {
+    for (let i = 0; i < 14; i++) {
+      const s = this.add.sprite(x, y, 'particle_snowflake');
+      s.setScale(Phaser.Math.FloatBetween(0.8, 1.4));
+      s.setDepth(45);
+
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const dist = Phaser.Math.FloatBetween(50, 180);
+
+      this.tweens.add({
+        targets: s,
+        x: x + Math.cos(angle) * dist,
+        y: y + Math.sin(angle) * dist,
+        rotation: Phaser.Math.FloatBetween(-2, 2),
+        alpha: 0,
+        duration: 550,
+        ease: 'Quad.easeOut',
+        onComplete: () => s.destroy(),
       });
     }
   }
@@ -767,7 +1276,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private restartGame(): void {
-    this.scene.restart();
+    this.scene.restart({ mode: this.mode });
   }
 
   private returnToMenu(): void {
@@ -780,26 +1289,41 @@ export class GameScene extends Phaser.Scene {
     this.isPlaying = false;
     SoundService.getInstance().playGameOver();
 
-    // Persist score
     const storage = StorageService.getInstance();
-    const isNewBest = storage.saveHighScore(this.score);
-    const highScore = storage.getHighScore();
+    let isNewBestScore = false;
+    let isNewBestTime = false;
+    let highScore = 0;
+    let bestSurvivalTime = 0;
+
+    if (this.mode === 'time_attack') {
+      isNewBestScore = storage.saveTimeAttackHighScore(this.score);
+      highScore = storage.getTimeAttackHighScore();
+    } else {
+      isNewBestScore = storage.saveEndlessHighScore(this.score);
+      isNewBestTime = storage.saveEndlessBestTime(this.survivalTime);
+      highScore = storage.getEndlessHighScore();
+      bestSurvivalTime = storage.getEndlessBestTime();
+    }
 
     const stats: GameStats = {
+      mode: this.mode,
       score: this.score,
       highScore,
+      survivalTime: Math.floor(this.survivalTime),
+      bestSurvivalTime,
       balloonsPopped: this.totalPopped,
+      perfectPops: this.perfectPops,
       goldenPopped: this.goldenPopped,
       hazardsHit: this.hazardsHit,
       maxCombo: this.maxCombo,
-      isNewBest,
+      feverActivations: this.feverActivations,
+      isNewBestScore,
+      isNewBestTime,
     };
 
-    // Clean remaining balloons
     this.balloons.forEach((b) => b.destroy());
     this.balloons = [];
 
-    // Fade to GameOverScene
     this.cameras.main.fadeOut(350, 15, 23, 42);
     this.cameras.main.once('camerafadeoutcomplete', () => {
       this.scene.start('GameOverScene', stats);

@@ -7,7 +7,7 @@ export class MenuScene extends Phaser.Scene {
   private ambientBalloons: Phaser.GameObjects.Sprite[] = [];
   private soundBtnIcon!: Phaser.GameObjects.Sprite;
   private selectedButtonIndex: number = 0;
-  private buttons: Phaser.GameObjects.Container[] = [];
+  private modeButtons: Phaser.GameObjects.Container[] = [];
   private isStartingGame: boolean = false;
 
   constructor() {
@@ -16,7 +16,7 @@ export class MenuScene extends Phaser.Scene {
 
   public create(): void {
     const { width, height } = this.cameras.main;
-    this.buttons = [];
+    this.modeButtons = [];
     this.ambientBalloons = [];
     this.isStartingGame = false;
 
@@ -32,11 +32,11 @@ export class MenuScene extends Phaser.Scene {
     // --- LOGO & TITLE ---
     this.createTitle(width, height);
 
-    // --- BEST SCORE BADGE ---
-    this.createBestScoreBadge(width, height);
+    // --- TWO PROMINENT GAME MODE SELECTION CARDS ---
+    this.createModeCards(width, height);
 
-    // --- MENU BUTTONS ---
-    this.createMenuButtons(width, height);
+    // --- BOTTOM NAVIGATION BUTTONS (HOW TO PLAY & SETTINGS) ---
+    this.createSecondaryButtons(width, height);
 
     // --- KEYBOARD CONTROLS ---
     this.setupKeyboard();
@@ -44,7 +44,6 @@ export class MenuScene extends Phaser.Scene {
     // Scene transition fade in
     this.cameras.main.fadeIn(300, 15, 23, 42);
 
-    // Clean up all input listeners when shutting down
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.keyboard?.removeAllListeners();
       this.input.removeAllListeners();
@@ -63,14 +62,13 @@ export class MenuScene extends Phaser.Scene {
       bg.setOrigin(0.5);
     }
 
-    // Soft gradient overlay
     const overlay = this.add.graphics();
     overlay.fillGradientStyle(0x0f172a, 0x0f172a, 0x1e1b4b, 0x1e1b4b, 0.65, 0.65, 0.85, 0.85);
     overlay.fillRect(0, 0, width, height);
   }
 
   private createAmbientBalloons(width: number, height: number): void {
-    const textures = ['balloon_pink', 'balloon_blue', 'balloon_green', 'balloon_purple', 'balloon_golden'];
+    const textures = ['balloon_red', 'balloon_blue', 'balloon_green', 'balloon_yellow', 'balloon_purple', 'balloon_golden'];
     for (let i = 0; i < 6; i++) {
       const tex = textures[i % textures.length];
       const x = Phaser.Math.Between(40, width - 40);
@@ -108,13 +106,13 @@ export class MenuScene extends Phaser.Scene {
 
     soundBtn.add([soundBg, this.soundBtnIcon]);
     soundBtn.setSize(48, 48);
-    // Center of 48x48 container in normalized space is (24, 24)
     soundBtn.setInteractive(new Phaser.Geom.Circle(24, 24, 24), Phaser.Geom.Circle.Contains);
     if (soundBtn.input) {
       soundBtn.input.cursor = 'pointer';
     }
 
-    soundBtn.on('pointerdown', () => {
+    soundBtn.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0 && pointer.button !== undefined) return;
       const enabled = soundService.toggleSound();
       this.soundBtnIcon.setTexture(enabled ? 'icon_sound_on' : 'icon_sound_off');
     });
@@ -135,7 +133,8 @@ export class MenuScene extends Phaser.Scene {
       fsBtn.input.cursor = 'pointer';
     }
 
-    fsBtn.on('pointerdown', () => {
+    fsBtn.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0 && pointer.button !== undefined) return;
       soundService.playClick();
       if (this.scale.isFullscreen) {
         this.scale.stopFullscreen();
@@ -146,13 +145,12 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private createTitle(width: number, height: number): void {
-    const titleContainer = this.add.container(width / 2, height * 0.22).setDepth(10);
+    const titleContainer = this.add.container(width / 2, height * 0.16).setDepth(10);
 
-    // Mascot balloon floating next to title
-    const mascot = this.add.sprite(-165, -15, 'balloon_pink').setScale(0.85);
+    const mascot = this.add.sprite(-175, -15, 'balloon_rainbow').setScale(0.75);
     this.tweens.add({
       targets: mascot,
-      y: '-=18',
+      y: '-=16',
       rotation: 0.08,
       duration: 1800,
       yoyo: true,
@@ -160,10 +158,9 @@ export class MenuScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
 
-    // Main Logo Text
     const logoMain = this.add.text(25, -20, 'POP RUSH', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '68px',
+      fontSize: '66px',
       fontStyle: 'bold',
       color: '#f43f5e',
       stroke: '#0f172a',
@@ -171,14 +168,13 @@ export class MenuScene extends Phaser.Scene {
       align: 'center',
     }).setOrigin(0.5);
 
-    // Glowing subtitle badge
     const subBadge = this.add.graphics();
     subBadge.fillStyle(0x4338ca, 0.9);
-    subBadge.fillRoundedRect(-120, 32, 240, 34, 17);
+    subBadge.fillRoundedRect(-140, 32, 280, 34, 17);
     subBadge.lineStyle(2, 0x818cf8);
-    subBadge.strokeRoundedRect(-120, 32, 240, 34, 17);
+    subBadge.strokeRoundedRect(-140, 32, 280, 34, 17);
 
-    const subText = this.add.text(0, 48, '⚡ 30s TIME ATTACK ⚡', {
+    const subText = this.add.text(0, 48, '🎯 COLOR RUSH ARCADE 🎯', {
       fontFamily: "'Fredoka', sans-serif",
       fontSize: '15px',
       fontStyle: 'bold',
@@ -188,10 +184,9 @@ export class MenuScene extends Phaser.Scene {
 
     titleContainer.add([mascot, logoMain, subBadge, subText]);
 
-    // Gentle floating breathing animation on entire title
     this.tweens.add({
       targets: titleContainer,
-      y: height * 0.22 - 6,
+      y: height * 0.16 - 6,
       duration: 2200,
       yoyo: true,
       repeat: -1,
@@ -199,171 +194,169 @@ export class MenuScene extends Phaser.Scene {
     });
   }
 
-  private createBestScoreBadge(width: number, height: number): void {
-    const highScore = StorageService.getInstance().getHighScore();
-    const badgeY = height * 0.41;
+  private createModeCards(width: number, height: number): void {
+    const storage = StorageService.getInstance();
+    const timeAttackBest = storage.getTimeAttackHighScore();
+    const endlessBest = storage.getEndlessHighScore();
+    const endlessTime = storage.getEndlessBestTime();
 
-    const badge = this.add.container(width / 2, badgeY).setDepth(10);
+    const formatTime = (secs: number) => {
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      return `${m}:${s < 10 ? '0' : ''}${s}`;
+    };
 
-    const bg = this.add.graphics();
-    bg.fillStyle(0x1e1b4b, 0.9);
-    bg.lineStyle(3, 0xf59e0b, 1);
-    bg.fillRoundedRect(-160, -28, 320, 56, 16);
-    bg.strokeRoundedRect(-160, -28, 320, 56, 16);
+    const cardWidth = Math.min(width * 0.86, 520);
+    const cardHeight = 160;
+    const startY = height * 0.38;
+    const spacing = 185;
 
-    const star = this.add.sprite(-120, 0, 'particle_star').setScale(1.4);
-    this.tweens.add({
-      targets: star,
-      rotation: Math.PI * 2,
-      duration: 5000,
-      repeat: -1,
-      ease: 'Linear',
+    // --- 1. TIME ATTACK MODE CARD ---
+    const taCard = this.createPlayableModeCard({
+      x: width / 2,
+      y: startY,
+      width: cardWidth,
+      height: cardHeight,
+      title: 'TIME ATTACK',
+      tag: '⏱️ 30s COUNTDOWN',
+      description: 'Race the clock! Pop the target color, chain golden balloons, and trigger Fever Mode!',
+      badgeText: `BEST SCORE: ${timeAttackBest.toLocaleString()}`,
+      primaryColor: 0xf43f5e,
+      darkColor: 0xbe123c,
+      accentColor: 0xfef08a,
+      onClick: () => this.startGame('time_attack'),
     });
 
-    const label = this.add.text(10, 0, `BEST SCORE: ${highScore.toLocaleString()}`, {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '22px',
-      fontStyle: 'bold',
-      color: '#fef08a',
-    }).setOrigin(0.5);
+    // --- 2. ENDLESS RUSH MODE CARD ---
+    const erCard = this.createPlayableModeCard({
+      x: width / 2,
+      y: startY + spacing,
+      width: cardWidth,
+      height: cardHeight,
+      title: 'ENDLESS RUSH',
+      tag: '❤️ 3 LIVES SURVIVAL',
+      description: 'Survive as long as you can! Wrong colors, bombs, or missed targets cost a life!',
+      badgeText: `BEST: ${endlessBest.toLocaleString()}  •  TIME: ${formatTime(endlessTime)}`,
+      primaryColor: 0x0284c7,
+      darkColor: 0x0369a1,
+      accentColor: 0x38bdf8,
+      onClick: () => this.startGame('endless'),
+    });
 
-    badge.add([bg, star, label]);
+    this.modeButtons = [taCard, erCard];
+    this.highlightMode(0);
   }
 
-  private createMenuButtons(width: number, height: number): void {
-    const startY = height * 0.55;
-    const spacing = 86;
+  private createPlayableModeCard(config: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    title: string;
+    tag: string;
+    description: string;
+    badgeText: string;
+    primaryColor: number;
+    darkColor: number;
+    accentColor: number;
+    onClick: () => void;
+  }): Phaser.GameObjects.Container {
+    const container = this.add.container(config.x, config.y).setDepth(10);
 
-    // 1. PLAY BUTTON
-    const playBtn = this.createArcadeButton(
-      width / 2,
-      startY,
-      'PLAY NOW',
-      0xf43f5e,
-      0xbe123c,
-      () => this.startGame(),
-      true
-    );
-
-    // 2. HOW TO PLAY BUTTON
-    const howBtn = this.createArcadeButton(
-      width / 2,
-      startY + spacing,
-      'HOW TO PLAY',
-      0x0284c7,
-      0x0369a1,
-      () => {
-        SoundService.getInstance().playClick();
-        GameModals.showHowToPlay(this);
-      }
-    );
-
-    // 3. SETTINGS BUTTON
-    const settingsBtn = this.createArcadeButton(
-      width / 2,
-      startY + spacing * 2,
-      'SETTINGS',
-      0x7c3aed,
-      0x6d28d9,
-      () => {
-        SoundService.getInstance().playClick();
-        GameModals.showSettings(this, () => {
-          this.soundBtnIcon.setTexture(SoundService.getInstance().isSoundEnabled() ? 'icon_sound_on' : 'icon_sound_off');
-        });
-      }
-    );
-
-    this.buttons = [playBtn, howBtn, settingsBtn];
-    this.highlightButton(0);
-  }
-
-  private createArcadeButton(
-    x: number,
-    y: number,
-    text: string,
-    primaryColor: number,
-    darkColor: number,
-    onClick: () => void,
-    isProminent: boolean = false
-  ): Phaser.GameObjects.Container {
-    const btnWidth = isProminent ? 280 : 250;
-    const btnHeight = isProminent ? 66 : 56;
-    const container = this.add.container(x, y).setDepth(10);
-
-    // Shadow / 3D base
+    // 3D Shadow Base
     const base = this.add.graphics();
-    base.fillStyle(darkColor, 1);
-    base.fillRoundedRect(-btnWidth / 2, -btnHeight / 2 + 5, btnWidth, btnHeight, 18);
+    base.fillStyle(config.darkColor, 1);
+    base.fillRoundedRect(-config.width / 2, -config.height / 2 + 6, config.width, config.height, 20);
 
-    // Face
+    // Face Card
     const face = this.add.graphics();
-    face.fillStyle(primaryColor, 1);
-    face.fillRoundedRect(-btnWidth / 2, -btnHeight / 2, btnWidth, btnHeight, 18);
+    face.fillStyle(0x1e1b4b, 0.96);
+    face.lineStyle(3, config.primaryColor, 1);
+    face.fillRoundedRect(-config.width / 2, -config.height / 2, config.width, config.height, 20);
+    face.strokeRoundedRect(-config.width / 2, -config.height / 2, config.width, config.height, 20);
 
-    const label = this.add.text(0, -2, text, {
+    // Title
+    const title = this.add.text(-config.width / 2 + 25, -config.height / 2 + 20, config.title, {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: isProminent ? '26px' : '22px',
+      fontSize: '28px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    });
+
+    // Tag badge
+    const tagBg = this.add.graphics();
+    tagBg.fillStyle(config.primaryColor, 1);
+    tagBg.fillRoundedRect(config.width / 2 - 185, -config.height / 2 + 18, 160, 28, 14);
+
+    const tagText = this.add.text(config.width / 2 - 105, -config.height / 2 + 32, config.tag, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '13px',
       fontStyle: 'bold',
       color: '#ffffff',
     }).setOrigin(0.5);
 
-    container.add([base, face, label]);
-    container.setSize(btnWidth, btnHeight);
+    // Description
+    const desc = this.add.text(-config.width / 2 + 25, -config.height / 2 + 62, config.description, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '14px',
+      color: '#cbd5e1',
+      wordWrap: { width: config.width - 50 },
+    });
 
-    // HitArea matches Phaser's Container coordinate normalization (0, 0, width, height)
-    container.setInteractive(
-      new Phaser.Geom.Rectangle(0, 0, btnWidth, btnHeight),
-      Phaser.Geom.Rectangle.Contains
-    );
+    // Record / Badge pill
+    const badgeBg = this.add.graphics();
+    badgeBg.fillStyle(0x312e81, 0.8);
+    badgeBg.fillRoundedRect(-config.width / 2 + 20, config.height / 2 - 42, config.width - 40, 30, 8);
+
+    const badge = this.add.text(-config.width / 2 + 35, config.height / 2 - 27, config.badgeText, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '14px',
+      fontStyle: 'bold',
+      color: '#fef08a',
+    }).setOrigin(0, 0.5);
+
+    // Play action indicator arrow
+    const playIndicator = this.add.text(config.width / 2 - 40, config.height / 2 - 27, 'PLAY ▶', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '14px',
+      fontStyle: 'bold',
+      color: '#4ade80',
+    }).setOrigin(0.5);
+
+    container.add([base, face, title, tagBg, tagText, desc, badgeBg, badge, playIndicator]);
+    container.setSize(config.width, config.height);
+
+    // Interactive HitArea
+    container.setInteractive(new Phaser.Geom.Rectangle(0, 0, config.width, config.height), Phaser.Geom.Rectangle.Contains);
     if (container.input) {
       container.input.cursor = 'pointer';
-    }
-
-    let pulseTween: Phaser.Tweens.Tween | null = null;
-    if (isProminent) {
-      pulseTween = this.tweens.add({
-        targets: container,
-        scaleX: 1.04,
-        scaleY: 1.04,
-        duration: 800,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Quad.easeInOut',
-      });
     }
 
     let isClicked = false;
 
     container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      // Accept primary click/touch only
       if (pointer.button !== 0 && pointer.button !== undefined) return;
       if (isClicked) return;
       isClicked = true;
 
-      if (pulseTween) {
-        pulseTween.stop();
-        pulseTween = null;
-      }
       this.tweens.killTweensOf(container);
-
       SoundService.getInstance().playClick();
 
-      // Reliable depression animation with guaranteed single-callback
       this.tweens.add({
         targets: container,
-        scaleX: 0.94,
-        scaleY: 0.94,
+        scaleX: 0.96,
+        scaleY: 0.96,
         duration: 70,
         yoyo: true,
         onComplete: () => {
-          onClick();
+          config.onClick();
         },
       });
     });
 
     container.on('pointerover', () => {
       if (!isClicked) {
-        this.tweens.add({ targets: container, scaleX: 1.05, scaleY: 1.05, duration: 120 });
+        this.tweens.add({ targets: container, scaleX: 1.03, scaleY: 1.03, duration: 120 });
       }
     });
 
@@ -376,23 +369,104 @@ export class MenuScene extends Phaser.Scene {
     return container;
   }
 
-  private highlightButton(index: number): void {
+  private createSecondaryButtons(width: number, height: number): void {
+    const btnY = height * 0.86;
+    const btnWidth = 180;
+    const btnHeight = 50;
+
+    // How to Play button
+    const howBtn = this.createPillButton(
+      width / 2 - 105,
+      btnY,
+      btnWidth,
+      btnHeight,
+      '📖 HOW TO PLAY',
+      0x6366f1,
+      () => {
+        SoundService.getInstance().playClick();
+        GameModals.showHowToPlay(this);
+      }
+    );
+
+    // Settings button
+    const setBtn = this.createPillButton(
+      width / 2 + 105,
+      btnY,
+      btnWidth,
+      btnHeight,
+      '⚙️ SETTINGS',
+      0xec4899,
+      () => {
+        SoundService.getInstance().playClick();
+        GameModals.showSettings(this, () => {
+          this.soundBtnIcon.setTexture(SoundService.getInstance().isSoundEnabled() ? 'icon_sound_on' : 'icon_sound_off');
+        });
+      }
+    );
+
+    this.add.existing(howBtn);
+    this.add.existing(setBtn);
+  }
+
+  private createPillButton(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    label: string,
+    color: number,
+    onClick: () => void
+  ): Phaser.GameObjects.Container {
+    const container = this.add.container(x, y).setDepth(10);
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x1e1b4b, 0.9);
+    bg.lineStyle(2, color, 1);
+    bg.fillRoundedRect(-width / 2, -height / 2, width, height, 14);
+    bg.strokeRoundedRect(-width / 2, -height / 2, width, height, 14);
+
+    const txt = this.add.text(0, 0, label, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '17px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    }).setOrigin(0.5);
+
+    container.add([bg, txt]);
+    container.setSize(width, height);
+    container.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, height), Phaser.Geom.Rectangle.Contains);
+    if (container.input) {
+      container.input.cursor = 'pointer';
+    }
+
+    container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0 && pointer.button !== undefined) return;
+      onClick();
+    });
+
+    container.on('pointerover', () => {
+      this.tweens.add({ targets: container, scaleX: 1.05, scaleY: 1.05, duration: 120 });
+    });
+    container.on('pointerout', () => {
+      this.tweens.add({ targets: container, scaleX: 1.0, scaleY: 1.0, duration: 120 });
+    });
+
+    return container;
+  }
+
+  private highlightMode(index: number): void {
     this.selectedButtonIndex = index;
   }
 
   private setupKeyboard(): void {
     this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
       if (event.code === 'Enter' || event.code === 'Space') {
-        const btn = this.buttons[this.selectedButtonIndex];
+        const btn = this.modeButtons[this.selectedButtonIndex];
         if (btn) btn.emit('pointerdown', { button: 0 });
-      } else if (event.code === 'ArrowDown') {
+      } else if (event.code === 'ArrowDown' || event.code === 'ArrowUp') {
         SoundService.getInstance().playClick();
-        this.selectedButtonIndex = (this.selectedButtonIndex + 1) % this.buttons.length;
-        this.highlightButton(this.selectedButtonIndex);
-      } else if (event.code === 'ArrowUp') {
-        SoundService.getInstance().playClick();
-        this.selectedButtonIndex = (this.selectedButtonIndex - 1 + this.buttons.length) % this.buttons.length;
-        this.highlightButton(this.selectedButtonIndex);
+        this.selectedButtonIndex = (this.selectedButtonIndex + 1) % this.modeButtons.length;
+        this.highlightMode(this.selectedButtonIndex);
       } else if (event.key === 'h' || event.key === 'H') {
         GameModals.showHowToPlay(this);
       } else if (event.key === 's' || event.key === 'S') {
@@ -401,13 +475,13 @@ export class MenuScene extends Phaser.Scene {
     });
   }
 
-  private startGame(): void {
+  private startGame(mode: 'time_attack' | 'endless'): void {
     if (this.isStartingGame) return;
     this.isStartingGame = true;
     SoundService.getInstance().playClick();
     this.cameras.main.fadeOut(200, 15, 23, 42);
     this.cameras.main.once('camerafadeoutcomplete', () => {
-      this.scene.start('GameScene');
+      this.scene.start('GameScene', { mode });
     });
   }
 }

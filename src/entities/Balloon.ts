@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 
-export type BalloonType = 'normal' | 'golden' | 'hazard';
+export type BalloonType = 'normal' | 'golden' | 'hazard' | 'rainbow' | 'freeze';
 
 export interface BalloonConfig {
   type: BalloonType;
@@ -11,19 +11,24 @@ export interface BalloonConfig {
   startX: number;
   startY: number;
   scoreValue: number;
+  onEscape?: (balloon: Balloon) => void;
 }
 
 export class Balloon extends Phaser.GameObjects.Sprite {
   public balloonType: BalloonType;
+  public colorKey: string;
   public scoreValue: number;
   public isPopped: boolean = false;
+  public isFrozen: boolean = false;
 
+  private baseSpeed: number;
   private speed: number;
   private swayAmplitude: number;
   private swayFrequency: number;
   private startX: number;
   private timeOffset: number;
   private floatTime: number = 0;
+  private onEscapeCallback?: (balloon: Balloon) => void;
 
   constructor(scene: Phaser.Scene, config: BalloonConfig) {
     let texture = 'balloon_red';
@@ -31,6 +36,10 @@ export class Balloon extends Phaser.GameObjects.Sprite {
       texture = 'balloon_golden';
     } else if (config.type === 'hazard') {
       texture = 'balloon_hazard';
+    } else if (config.type === 'rainbow') {
+      texture = 'balloon_rainbow';
+    } else if (config.type === 'freeze') {
+      texture = 'balloon_freeze';
     } else if (config.colorKey) {
       texture = `balloon_${config.colorKey}`;
     }
@@ -38,17 +47,19 @@ export class Balloon extends Phaser.GameObjects.Sprite {
     super(scene, config.startX, config.startY, texture);
 
     this.balloonType = config.type;
+    this.colorKey = config.colorKey || '';
     this.scoreValue = config.scoreValue;
+    this.baseSpeed = config.speed;
     this.speed = config.speed;
     this.swayAmplitude = config.swayAmplitude;
     this.swayFrequency = config.swayFrequency;
     this.startX = config.startX;
     this.timeOffset = Math.random() * Math.PI * 2;
+    this.onEscapeCallback = config.onEscape;
 
     scene.add.existing(this);
 
     // Hit area centered on the balloon body (width 120, height 170)
-    // Local display origin is at (60, 85); body center is at (60, 60)
     this.setInteractive(
       new Phaser.Geom.Circle(60, 60, 56),
       Phaser.Geom.Circle.Contains
@@ -68,8 +79,17 @@ export class Balloon extends Phaser.GameObjects.Sprite {
     });
   }
 
+  public setFrozen(frozen: boolean): void {
+    this.isFrozen = frozen;
+    this.speed = frozen ? this.baseSpeed * 0.4 : this.baseSpeed;
+    if (frozen) {
+      this.setTint(0x7dd3fc);
+    } else {
+      this.clearTint();
+    }
+  }
+
   public update(_time: number, delta: number): boolean {
-    // If popped or escaping, tell GameScene this balloon is no longer active
     if (this.isPopped) return false;
 
     const dt = delta / 1000;
@@ -105,10 +125,8 @@ export class Balloon extends Phaser.GameObjects.Sprite {
       return;
     }
 
-    // Stop any ongoing tweens (e.g., spawn bounce) so pop animation plays cleanly
     this.scene.tweens.killTweensOf(this);
 
-    // Quick burst expand followed by shrink to 0 and destruction
     this.scene.tweens.add({
       targets: this,
       scaleX: 1.25,
@@ -140,6 +158,10 @@ export class Balloon extends Phaser.GameObjects.Sprite {
     if (this.isPopped) return;
     this.isPopped = true;
     this.disableInteractive();
+
+    if (this.onEscapeCallback) {
+      this.onEscapeCallback(this);
+    }
 
     if (!this.scene) {
       this.destroy();

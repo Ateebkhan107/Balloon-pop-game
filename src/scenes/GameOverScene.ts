@@ -23,11 +23,11 @@ export class GameOverScene extends Phaser.Scene {
     this.createBackground(width, height);
 
     // --- CELEBRATION PARTICLES IF NEW BEST ---
-    if (this.stats.isNewBest) {
+    if (this.stats.isNewBestScore || this.stats.isNewBestTime) {
       this.createConfettiShower(width, height);
     }
 
-    // --- TITLE: TIME'S UP! ---
+    // --- TITLE ---
     this.createTitle(width, height);
 
     // --- STATS SUMMARY CARD ---
@@ -42,7 +42,6 @@ export class GameOverScene extends Phaser.Scene {
     // Fade in
     this.cameras.main.fadeIn(300, 15, 23, 42);
 
-    // Clean up input listeners when shutting down
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.keyboard?.removeAllListeners();
       this.input.removeAllListeners();
@@ -88,28 +87,43 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   private createTitle(width: number, height: number): void {
-    const titleContainer = this.add.container(width / 2, height * 0.15).setDepth(10);
+    const titleContainer = this.add.container(width / 2, height * 0.14).setDepth(10);
 
-    const mainTitle = this.add.text(0, 0, "TIME'S UP!", {
+    // Mode Tag
+    const modeLabel = this.stats.mode === 'time_attack' ? '⏱️ TIME ATTACK' : '❤️ ENDLESS RUSH';
+    const tagBg = this.add.graphics();
+    tagBg.fillStyle(this.stats.mode === 'time_attack' ? 0xf43f5e : 0x0284c7, 0.9);
+    tagBg.fillRoundedRect(-90, -42, 180, 28, 14);
+
+    const tagText = this.add.text(0, -28, modeLabel, {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '64px',
+      fontSize: '13px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    }).setOrigin(0.5);
+
+    const mainTitleText = this.stats.mode === 'time_attack' ? "TIME'S UP!" : 'GAME OVER!';
+    const mainTitle = this.add.text(0, 8, mainTitleText, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '60px',
       fontStyle: 'bold',
       color: '#f43f5e',
       stroke: '#0f172a',
       strokeThickness: 10,
     }).setOrigin(0.5);
 
-    titleContainer.add(mainTitle);
+    titleContainer.add([tagBg, tagText, mainTitle]);
 
-    if (this.stats.isNewBest) {
-      const bestBadge = this.add.container(0, 52);
+    if (this.stats.isNewBestScore || this.stats.isNewBestTime) {
+      const bestBadge = this.add.container(0, 58);
       const bg = this.add.graphics();
       bg.fillStyle(0xf59e0b, 1);
       bg.fillRoundedRect(-140, -18, 280, 36, 18);
 
-      const txt = this.add.text(0, 0, '🏆 NEW HIGH SCORE! 🏆', {
+      const label = this.stats.isNewBestScore ? '🏆 NEW BEST SCORE! 🏆' : '⏱️ NEW BEST TIME! ⏱️';
+      const txt = this.add.text(0, 0, label, {
         fontFamily: "'Fredoka', sans-serif",
-        fontSize: '18px',
+        fontSize: '17px',
         fontStyle: 'bold',
         color: '#0f172a',
       }).setOrigin(0.5);
@@ -132,7 +146,7 @@ export class GameOverScene extends Phaser.Scene {
       targets: titleContainer,
       scaleX: 1,
       scaleY: 1,
-      duration: 400,
+      duration: 380,
       ease: 'Back.easeOut',
     });
   }
@@ -140,7 +154,7 @@ export class GameOverScene extends Phaser.Scene {
   private createStatsCard(width: number, height: number): void {
     const cardY = height * 0.48;
     const cardWidth = Math.min(width * 0.88, 520);
-    const cardHeight = 360;
+    const cardHeight = 380;
 
     const card = this.add.container(width / 2, cardY).setDepth(10);
 
@@ -151,17 +165,17 @@ export class GameOverScene extends Phaser.Scene {
     bg.strokeRoundedRect(-cardWidth / 2, -cardHeight / 2, cardWidth, cardHeight, 22);
     card.add(bg);
 
-    const scoreLabel = this.add.text(0, -cardHeight / 2 + 40, 'FINAL SCORE', {
+    const scoreLabel = this.add.text(0, -cardHeight / 2 + 38, 'FINAL SCORE', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '16px',
+      fontSize: '15px',
       fontStyle: 'bold',
       color: '#94a3b8',
       letterSpacing: 1,
     }).setOrigin(0.5);
 
-    const scoreVal = this.add.text(0, -cardHeight / 2 + 85, '0', {
+    const scoreVal = this.add.text(0, -cardHeight / 2 + 78, '0', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '52px',
+      fontSize: '48px',
       fontStyle: 'bold',
       color: '#38bdf8',
     }).setOrigin(0.5);
@@ -173,7 +187,7 @@ export class GameOverScene extends Phaser.Scene {
     this.tweens.addCounter({
       from: 0,
       to: targetScore,
-      duration: 1000,
+      duration: 900,
       ease: 'Cubic.easeOut',
       onUpdate: (tween) => {
         currentCount = Math.floor(tween.getValue() as number);
@@ -183,29 +197,51 @@ export class GameOverScene extends Phaser.Scene {
 
     const div = this.add.graphics();
     div.lineStyle(2, 0x334155, 1);
-    div.strokeLineShape(new Phaser.Geom.Line(-cardWidth / 2 + 30, -cardHeight / 2 + 130, cardWidth / 2 - 30, -cardHeight / 2 + 130));
+    div.strokeLineShape(new Phaser.Geom.Line(-cardWidth / 2 + 30, -cardHeight / 2 + 120, cardWidth / 2 - 30, -cardHeight / 2 + 120));
     card.add(div);
 
-    const rows = [
-      { label: 'Balloons Popped', value: `${this.stats.balloonsPopped}`, color: '#fbcfe8' },
-      { label: 'Golden Balloons (+2s)', value: `${this.stats.goldenPopped}`, color: '#fef08a' },
-      { label: 'Hazards Triggered', value: `${this.stats.hazardsHit}`, color: '#fca5a5' },
-      { label: 'Max Combo Streak', value: `${this.stats.maxCombo}x`, color: '#fbbf24' },
-      { label: 'Personal Best', value: `${this.stats.highScore.toLocaleString()}`, color: '#e2e8f0' },
-    ];
+    const formatTime = (secs: number) => {
+      const m = Math.floor(secs / 60);
+      const s = secs % 60;
+      return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+    };
+
+    // Rows tailored by mode
+    let rows: { label: string; value: string; color: string }[] = [];
+
+    if (this.stats.mode === 'time_attack') {
+      rows = [
+        { label: 'Balloons Popped', value: `${this.stats.balloonsPopped}`, color: '#fbcfe8' },
+        { label: 'Perfect Pops (Bullseye)', value: `${this.stats.perfectPops}`, color: '#fef08a' },
+        { label: 'Golden Balloons (+2s)', value: `${this.stats.goldenPopped}`, color: '#fef08a' },
+        { label: 'Max Combo Streak', value: `${this.stats.maxCombo}x`, color: '#fbbf24' },
+        { label: 'Fever Modes Triggered', value: `${this.stats.feverActivations}`, color: '#f43f5e' },
+        { label: 'Personal Best Score', value: `${this.stats.highScore.toLocaleString()}`, color: '#e2e8f0' },
+      ];
+    } else {
+      // Endless Rush
+      rows = [
+        { label: 'Survival Time', value: formatTime(this.stats.survivalTime), color: '#38bdf8' },
+        { label: 'Best Survival Time', value: formatTime(this.stats.bestSurvivalTime), color: '#a7f3d0' },
+        { label: 'Balloons Popped', value: `${this.stats.balloonsPopped}`, color: '#fbcfe8' },
+        { label: 'Perfect Pops', value: `${this.stats.perfectPops}`, color: '#fef08a' },
+        { label: 'Max Combo Streak', value: `${this.stats.maxCombo}x`, color: '#fbbf24' },
+        { label: 'Personal Best Score', value: `${this.stats.highScore.toLocaleString()}`, color: '#e2e8f0' },
+      ];
+    }
 
     rows.forEach((row, idx) => {
-      const rowY = -cardHeight / 2 + 160 + idx * 36;
+      const rowY = -cardHeight / 2 + 146 + idx * 34;
 
-      const lbl = this.add.text(-cardWidth / 2 + 40, rowY, row.label, {
+      const lbl = this.add.text(-cardWidth / 2 + 35, rowY, row.label, {
         fontFamily: "'Fredoka', sans-serif",
-        fontSize: '18px',
+        fontSize: '16px',
         color: '#cbd5e1',
       }).setOrigin(0, 0.5);
 
-      const val = this.add.text(cardWidth / 2 - 40, rowY, row.value, {
+      const val = this.add.text(cardWidth / 2 - 35, rowY, row.value, {
         fontFamily: "'Fredoka', sans-serif",
-        fontSize: '20px',
+        fontSize: '18px',
         fontStyle: 'bold',
         color: row.color,
       }).setOrigin(1, 0.5);
@@ -215,10 +251,10 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   private createActionButtons(width: number, height: number): void {
-    const btnY = height * 0.82;
-    const spacing = 75;
+    const btnY = height * 0.83;
+    const spacing = 72;
 
-    // 1. PLAY AGAIN BUTTON
+    // 1. PLAY AGAIN (Instant Retry of the same mode)
     const retryBtn = this.createArcadeButton(
       width / 2,
       btnY,
@@ -229,7 +265,7 @@ export class GameOverScene extends Phaser.Scene {
       true
     );
 
-    // 2. MAIN MENU BUTTON
+    // 2. MAIN MENU (Returns to Mode Selection)
     const menuBtn = this.createArcadeButton(
       width / 2,
       btnY + spacing,
@@ -273,27 +309,9 @@ export class GameOverScene extends Phaser.Scene {
 
     container.add([base, face, label]);
     container.setSize(btnWidth, btnHeight);
-
-    // HitArea matches normalized container coordinates (0, 0, width, height)
-    container.setInteractive(
-      new Phaser.Geom.Rectangle(0, 0, btnWidth, btnHeight),
-      Phaser.Geom.Rectangle.Contains
-    );
+    container.setInteractive(new Phaser.Geom.Rectangle(0, 0, btnWidth, btnHeight), Phaser.Geom.Rectangle.Contains);
     if (container.input) {
       container.input.cursor = 'pointer';
-    }
-
-    let pulseTween: Phaser.Tweens.Tween | null = null;
-    if (isProminent) {
-      pulseTween = this.tweens.add({
-        targets: container,
-        scaleX: 1.04,
-        scaleY: 1.04,
-        duration: 800,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Quad.easeInOut',
-      });
     }
 
     let isClicked = false;
@@ -303,12 +321,7 @@ export class GameOverScene extends Phaser.Scene {
       if (isClicked) return;
       isClicked = true;
 
-      if (pulseTween) {
-        pulseTween.stop();
-        pulseTween = null;
-      }
       this.tweens.killTweensOf(container);
-
       SoundService.getInstance().playClick();
 
       this.tweens.add({
@@ -354,7 +367,7 @@ export class GameOverScene extends Phaser.Scene {
     SoundService.getInstance().playClick();
     this.cameras.main.fadeOut(200, 15, 23, 42);
     this.cameras.main.once('camerafadeoutcomplete', () => {
-      this.scene.start('GameScene');
+      this.scene.start('GameScene', { mode: this.stats.mode });
     });
   }
 
