@@ -15,6 +15,8 @@ const STORAGE_KEYS = {
   HIGH_SCORE_ENDLESS: 'pop_rush_endless_high_score',
   BEST_TIME_ENDLESS: 'pop_rush_endless_best_time',
   SETTINGS: 'pop_rush_settings',
+  PLAYER_NICKNAME: 'pop_rush_player_nickname',
+  FIREBASE_UID: 'pop_rush_firebase_uid',
 };
 
 export class StorageService {
@@ -110,6 +112,55 @@ export class StorageService {
 
   public saveHighScore(score: number): boolean {
     return this.saveTimeAttackHighScore(score);
+  }
+
+  // --- PLAYER PROFILE & NICKNAME ---
+
+  public getNickname(): string | null {
+    try {
+      const val = localStorage.getItem(STORAGE_KEYS.PLAYER_NICKNAME);
+      return val ? val.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  public saveNickname(nickname: string): string {
+    const sanitized = StorageService.sanitizeNickname(nickname);
+    try {
+      localStorage.setItem(STORAGE_KEYS.PLAYER_NICKNAME, sanitized);
+    } catch {
+      // Ignore quota errors
+    }
+    return sanitized;
+  }
+
+  public getFirebaseUid(): string | null {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.FIREBASE_UID);
+    } catch {
+      return null;
+    }
+  }
+
+  public saveFirebaseUid(uid: string): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.FIREBASE_UID, uid);
+    } catch {
+      // Ignore quota errors
+    }
+  }
+
+  public static sanitizeNickname(raw: string): string {
+    if (!raw) return 'Player';
+    // Strip HTML/script characters and keep alphanumeric, spaces, dashes, and underscores
+    let cleaned = raw.replace(/[<>&"'/\\`]/g, '').trim();
+    if (cleaned.length < 2) {
+      cleaned = 'Player';
+    } else if (cleaned.length > 20) {
+      cleaned = cleaned.substring(0, 20).trim();
+    }
+    return cleaned;
   }
 
   // --- SETTINGS ---

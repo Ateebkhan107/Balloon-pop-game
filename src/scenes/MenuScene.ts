@@ -9,6 +9,7 @@ export class MenuScene extends Phaser.Scene {
   private selectedButtonIndex: number = 0;
   private modeButtons: Phaser.GameObjects.Container[] = [];
   private isStartingGame: boolean = false;
+  private playerPillText?: Phaser.GameObjects.Text;
 
   constructor() {
     super({ key: 'MenuScene' });
@@ -35,11 +36,24 @@ export class MenuScene extends Phaser.Scene {
     // --- TWO PROMINENT GAME MODE SELECTION CARDS ---
     this.createModeCards(width, height);
 
+    // --- SHARED FAMILY LEADERBOARD BUTTON ---
+    this.createLeaderboardButton(width, height);
+
     // --- BOTTOM NAVIGATION BUTTONS (HOW TO PLAY & SETTINGS) ---
     this.createSecondaryButtons(width, height);
 
     // --- KEYBOARD CONTROLS ---
     this.setupKeyboard();
+
+    // Check first-time visitor: prompt for nickname if not set
+    const storage = StorageService.getInstance();
+    if (!storage.getNickname()) {
+      this.time.delayedCall(450, () => {
+        GameModals.showNicknamePrompt(this, (name) => {
+          this.updatePlayerPill(name);
+        });
+      });
+    }
 
     // Scene transition fade in
     this.cameras.main.fadeIn(300, 15, 23, 42);
@@ -142,6 +156,44 @@ export class MenuScene extends Phaser.Scene {
         this.scale.startFullscreen();
       }
     });
+
+    // Player Nickname Pill (top-left)
+    const playerPill = this.add.container(135, 55).setDepth(20);
+    const pillBg = this.add.graphics();
+    pillBg.fillStyle(0x1e1b4b, 0.85);
+    pillBg.lineStyle(1.5, 0x6366f1);
+    pillBg.fillRoundedRect(-95, -18, 190, 36, 18);
+    pillBg.strokeRoundedRect(-95, -18, 190, 36, 18);
+
+    const initialNick = StorageService.getInstance().getNickname() || 'Player';
+    const displayNick = initialNick.length > 10 ? `${initialNick.substring(0, 9)}…` : initialNick;
+    this.playerPillText = this.add.text(0, 0, `👤 ${displayNick} ✏️`, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '14px',
+      fontStyle: 'bold',
+      color: '#e0e7ff',
+    }).setOrigin(0.5);
+
+    playerPill.add([pillBg, this.playerPillText]);
+    playerPill.setSize(190, 36);
+    playerPill.setInteractive(new Phaser.Geom.Rectangle(0, 0, 190, 36), Phaser.Geom.Rectangle.Contains);
+    if (playerPill.input) {
+      playerPill.input.cursor = 'pointer';
+    }
+
+    playerPill.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0 && pointer.button !== undefined) return;
+      SoundService.getInstance().playClick();
+      GameModals.showNicknamePrompt(this, (newName) => {
+        this.updatePlayerPill(newName);
+      });
+    });
+  }
+
+  private updatePlayerPill(name?: string): void {
+    const nick = name || StorageService.getInstance().getNickname() || 'Player';
+    const displayNick = nick.length > 10 ? `${nick.substring(0, 9)}…` : nick;
+    this.playerPillText?.setText(`👤 ${displayNick} ✏️`);
   }
 
   private createTitle(width: number, height: number): void {
@@ -369,6 +421,71 @@ export class MenuScene extends Phaser.Scene {
     return container;
   }
 
+  private createLeaderboardButton(width: number, _height: number): void {
+    const btnWidth = Math.min(width * 0.76, 380);
+    const btnHeight = 54;
+    const btnY = 765;
+
+    const container = this.add.container(width / 2, btnY).setDepth(10);
+
+    const base = this.add.graphics();
+    base.fillStyle(0x78350f, 1);
+    base.fillRoundedRect(-btnWidth / 2, -btnHeight / 2 + 5, btnWidth, btnHeight, 18);
+
+    const face = this.add.graphics();
+    face.fillStyle(0xf59e0b, 1);
+    face.fillRoundedRect(-btnWidth / 2, -btnHeight / 2, btnWidth, btnHeight, 18);
+
+    const label = this.add.text(0, -2, '🏆 FAMILY LEADERBOARD 🏆', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '20px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+      stroke: '#78350f',
+      strokeThickness: 3,
+    }).setOrigin(0.5);
+
+    container.add([base, face, label]);
+    container.setSize(btnWidth, btnHeight);
+    container.setInteractive(new Phaser.Geom.Rectangle(0, 0, btnWidth, btnHeight), Phaser.Geom.Rectangle.Contains);
+    if (container.input) {
+      container.input.cursor = 'pointer';
+    }
+
+    let isClicked = false;
+    container.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0 && pointer.button !== undefined) return;
+      if (isClicked) return;
+      isClicked = true;
+
+      SoundService.getInstance().playClick();
+      this.tweens.add({
+        targets: container,
+        scaleX: 0.95,
+        scaleY: 0.95,
+        duration: 70,
+        yoyo: true,
+        onComplete: () => {
+          isClicked = false;
+          GameModals.showLeaderboard(this, { initialMode: 'time_attack' });
+        },
+      });
+    });
+
+    container.on('pointerover', () => {
+      if (!isClicked) {
+        this.tweens.add({ targets: container, scaleX: 1.04, scaleY: 1.04, duration: 120 });
+      }
+    });
+    container.on('pointerout', () => {
+      if (!isClicked) {
+        this.tweens.add({ targets: container, scaleX: 1.0, scaleY: 1.0, duration: 120 });
+      }
+    });
+
+    this.add.existing(container);
+  }
+
   private createSecondaryButtons(width: number, height: number): void {
     const btnY = height * 0.86;
     const btnWidth = 180;
@@ -471,6 +588,8 @@ export class MenuScene extends Phaser.Scene {
         GameModals.showHowToPlay(this);
       } else if (event.key === 's' || event.key === 'S') {
         GameModals.showSettings(this);
+      } else if (event.key === 'l' || event.key === 'L') {
+        GameModals.showLeaderboard(this);
       }
     });
   }

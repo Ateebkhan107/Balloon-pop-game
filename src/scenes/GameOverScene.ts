@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GameStats } from './GameScene';
 import { SoundService } from '../services/SoundService';
+import { GameModals } from '../ui/GameModals';
 
 export class GameOverScene extends Phaser.Scene {
   private stats!: GameStats;
@@ -251,8 +252,8 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   private createActionButtons(width: number, height: number): void {
-    const btnY = height * 0.83;
-    const spacing = 72;
+    const btnY = height * 0.77;
+    const spacing = 66;
 
     // 1. PLAY AGAIN (Instant Retry of the same mode)
     const retryBtn = this.createArcadeButton(
@@ -265,10 +266,20 @@ export class GameOverScene extends Phaser.Scene {
       true
     );
 
-    // 2. MAIN MENU (Returns to Mode Selection)
-    const menuBtn = this.createArcadeButton(
+    // 2. FAMILY LEADERBOARD
+    const leaderboardBtn = this.createArcadeButton(
       width / 2,
       btnY + spacing,
+      '🏆 LEADERBOARD',
+      0xf59e0b,
+      0xb45309,
+      () => this.openLeaderboard()
+    );
+
+    // 3. MAIN MENU (Returns to Mode Selection)
+    const menuBtn = this.createArcadeButton(
+      width / 2,
+      btnY + spacing * 2,
       'MAIN MENU',
       0x6366f1,
       0x4f46e5,
@@ -276,7 +287,18 @@ export class GameOverScene extends Phaser.Scene {
     );
 
     this.add.existing(retryBtn);
+    this.add.existing(leaderboardBtn);
     this.add.existing(menuBtn);
+  }
+
+  private openLeaderboard(): void {
+    SoundService.getInstance().playClick();
+    GameModals.showLeaderboard(this, {
+      initialMode: this.stats.mode,
+      fromGameOver: true,
+      onPlayAgain: (m) => this.scene.start('GameScene', { mode: m }),
+      onBackToMenu: () => this.returnToMenu(),
+    });
   }
 
   private createArcadeButton(
@@ -357,6 +379,8 @@ export class GameOverScene extends Phaser.Scene {
         this.retryGame();
       } else if (event.code === 'Escape') {
         this.returnToMenu();
+      } else if (event.key === 'l' || event.key === 'L') {
+        this.openLeaderboard();
       }
     });
   }

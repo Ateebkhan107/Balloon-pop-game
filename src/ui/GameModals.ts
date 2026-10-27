@@ -1,6 +1,15 @@
 import Phaser from 'phaser';
 import { StorageService } from '../services/StorageService';
 import { SoundService } from '../services/SoundService';
+import { LeaderboardService, GameModeKey, LeaderboardEntry } from '../services/LeaderboardService';
+
+export interface LeaderboardModalOptions {
+  initialMode?: GameModeKey;
+  fromGameOver?: boolean;
+  onPlayAgain?: (mode: GameModeKey) => void;
+  onBackToMenu?: () => void;
+  onClose?: () => void;
+}
 
 export class GameModals {
   public static showHowToPlay(scene: Phaser.Scene, onClose?: () => void): Phaser.GameObjects.Container {
@@ -443,6 +452,766 @@ export class GameModals {
     });
     container.add(closeBtn);
 
+    container.setScale(0.9);
+    container.setAlpha(0);
+    scene.tweens.add({
+      targets: container,
+      scaleX: 1,
+      scaleY: 1,
+      alpha: 1,
+      duration: 200,
+      ease: 'Back.easeOut',
+    });
+
+    const escKey = scene.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+    const escListener = () => {
+      doClose();
+      escKey?.removeListener('down', escListener);
+    };
+    escKey?.once('down', escListener);
+
+    return container;
+  }
+
+  /**
+   * Prompts the player for a nickname using a mobile-friendly HTML overlay.
+   * Seamlessly integrates with soft keyboards on iOS and Android.
+   */
+  public static showNicknamePrompt(
+    _scene: Phaser.Scene,
+    onComplete: (nickname: string) => void,
+    existingNickname?: string
+  ): void {
+    const existing = document.getElementById('pop-rush-nickname-modal');
+    if (existing) {
+      existing.remove();
+    }
+
+    const currentName = existingNickname || StorageService.getInstance().getNickname() || '';
+
+    const overlay = document.createElement('div');
+    overlay.id = 'pop-rush-nickname-modal';
+    overlay.style.cssText = `
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      touch-action: auto;
+      pointer-events: auto;
+      animation: popRushFadeIn 0.2s ease-out;
+    `;
+
+    overlay.innerHTML = `
+      <style>
+        @keyframes popRushFadeIn {
+          from { opacity: 0; transform: scale(0.94); }
+          to { opacity: 1; transform: scale(1); }
+        }
+        .pop-rush-box {
+          background: #1e1b4b;
+          border: 3px solid #6366f1;
+          border-radius: 24px;
+          padding: 32px 28px;
+          width: 90%;
+          max-width: 440px;
+          box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7);
+          text-align: center;
+          font-family: 'Fredoka', -apple-system, BlinkMacSystemFont, sans-serif;
+          color: #ffffff;
+          box-sizing: border-box;
+        }
+        .pop-rush-badge {
+          display: inline-block;
+          background: #4338ca;
+          color: #e0e7ff;
+          font-size: 13px;
+          font-weight: 700;
+          letter-spacing: 1.5px;
+          padding: 5px 14px;
+          border-radius: 12px;
+          margin-bottom: 12px;
+        }
+        .pop-rush-title {
+          font-size: 28px;
+          font-weight: 800;
+          color: #f43f5e;
+          margin: 0 0 10px 0;
+          letter-spacing: 0.5px;
+        }
+        .pop-rush-desc {
+          font-size: 15px;
+          color: #cbd5e1;
+          margin: 0 0 20px 0;
+          line-height: 1.4;
+        }
+        .pop-rush-input {
+          width: 100%;
+          box-sizing: border-box;
+          background: #0f172a;
+          border: 2px solid #6366f1;
+          border-radius: 14px;
+          padding: 14px 16px;
+          font-size: 20px;
+          font-family: 'Fredoka', sans-serif;
+          font-weight: 700;
+          color: #ffffff;
+          text-align: center;
+          outline: none;
+          transition: border-color 0.2s;
+        }
+        .pop-rush-input:focus {
+          border-color: #f43f5e;
+        }
+        .pop-rush-error {
+          color: #fb7185;
+          font-size: 13px;
+          font-weight: 600;
+          min-height: 22px;
+          margin: 8px 0;
+        }
+        .pop-rush-actions {
+          display: flex;
+          gap: 12px;
+          margin-top: 14px;
+        }
+        .pop-rush-btn-save {
+          flex: 1;
+          background: #10b981;
+          border: none;
+          border-radius: 14px;
+          color: #ffffff;
+          font-size: 18px;
+          font-weight: 700;
+          font-family: 'Fredoka', sans-serif;
+          padding: 14px 18px;
+          cursor: pointer;
+          transition: transform 0.1s, background 0.15s;
+        }
+        .pop-rush-btn-save:hover {
+          background: #059669;
+          transform: translateY(-1px);
+        }
+        .pop-rush-btn-guest {
+          background: #334155;
+          border: none;
+          border-radius: 14px;
+          color: #cbd5e1;
+          font-size: 15px;
+          font-weight: 600;
+          font-family: 'Fredoka', sans-serif;
+          padding: 14px 16px;
+          cursor: pointer;
+        }
+        .pop-rush-btn-guest:hover {
+          background: #475569;
+        }
+      </style>
+      <div class="pop-rush-box">
+        <div class="pop-rush-badge">🏆 FAMILY LEADERBOARD</div>
+        <div class="pop-rush-title">${currentName ? 'EDIT NICKNAME' : 'PLAYER NICKNAME'}</div>
+        <div class="pop-rush-desc">
+          ${currentName ? 'Update your display name for the family rankings:' : 'Enter your name to join the family leaderboard and save high scores:'}
+        </div>
+        <input type="text" class="pop-rush-input" id="pop-rush-nick-field" maxlength="15" placeholder="Your nickname..." value="${currentName}" autocomplete="off" />
+        <div class="pop-rush-error" id="pop-rush-nick-err"></div>
+        <div class="pop-rush-actions">
+          <button type="button" class="pop-rush-btn-save" id="pop-rush-nick-submit">SAVE NICKNAME</button>
+          ${!currentName ? '<button type="button" class="pop-rush-btn-guest" id="pop-rush-nick-skip">PLAY AS GUEST</button>' : '<button type="button" class="pop-rush-btn-guest" id="pop-rush-nick-skip">CANCEL</button>'}
+        </div>
+      </div>
+    `;
+
+    const gameContainer = document.getElementById('game-container') || document.body;
+    gameContainer.appendChild(overlay);
+
+    const inputField = overlay.querySelector('#pop-rush-nick-field') as HTMLInputElement;
+    const errorEl = overlay.querySelector('#pop-rush-nick-err') as HTMLElement;
+    const submitBtn = overlay.querySelector('#pop-rush-nick-submit') as HTMLButtonElement;
+    const skipBtn = overlay.querySelector('#pop-rush-nick-skip') as HTMLButtonElement;
+
+    setTimeout(() => {
+      inputField?.focus();
+      inputField?.select();
+    }, 60);
+
+    const closeAndComplete = (name: string) => {
+      SoundService.getInstance().playClick();
+      overlay.remove();
+      onComplete(name);
+    };
+
+    const handleSave = () => {
+      const val = (inputField?.value || '').trim();
+      if (val.length < 2) {
+        errorEl.textContent = 'Nickname must be at least 2 characters long.';
+        return;
+      }
+      if (val.length > 15) {
+        errorEl.textContent = 'Nickname cannot exceed 15 characters.';
+        return;
+      }
+      const sanitized = StorageService.sanitizeNickname(val);
+      StorageService.getInstance().saveNickname(sanitized);
+      LeaderboardService.getInstance().updateNickname(sanitized);
+      closeAndComplete(sanitized);
+    };
+
+    submitBtn?.addEventListener('click', handleSave);
+    skipBtn?.addEventListener('click', () => {
+      if (currentName) {
+        closeAndComplete(currentName);
+      } else {
+        const defaultName = 'Player';
+        StorageService.getInstance().saveNickname(defaultName);
+        LeaderboardService.getInstance().updateNickname(defaultName);
+        closeAndComplete(defaultName);
+      }
+    });
+
+    inputField?.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        handleSave();
+      }
+    });
+  }
+
+  /**
+   * Displays the shared Family Leaderboard modal with separate tabs for
+   * Time Attack and Endless Rush, rank indicators, 1st place crown,
+   * live player rank footer, and navigation.
+   */
+  public static showLeaderboard(
+    scene: Phaser.Scene,
+    options?: LeaderboardModalOptions
+  ): Phaser.GameObjects.Container {
+    const { width, height } = scene.cameras.main;
+    const container = scene.add.container(0, 0).setDepth(200);
+    const sound = SoundService.getInstance();
+    const leaderboardService = LeaderboardService.getInstance();
+
+    let currentMode: GameModeKey = options?.initialMode || 'time_attack';
+
+    // 1. Semi-transparent backdrop
+    const overlay = scene.add.rectangle(width / 2, height / 2, width, height, 0x0f172a, 0.92);
+    overlay.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, height), Phaser.Geom.Rectangle.Contains);
+    container.add(overlay);
+
+    // 2. Main Leaderboard Card
+    const cardWidth = Math.min(width * 0.94, 620);
+    const cardHeight = Math.min(height * 0.90, 880);
+    const cardX = width / 2;
+    const cardY = height / 2;
+
+    const card = scene.add.graphics();
+    card.fillStyle(0x1e1b4b, 0.98);
+    card.lineStyle(3, 0xf59e0b, 1);
+    card.fillRoundedRect(cardX - cardWidth / 2, cardY - cardHeight / 2, cardWidth, cardHeight, 24);
+    card.strokeRoundedRect(cardX - cardWidth / 2, cardY - cardHeight / 2, cardWidth, cardHeight, 24);
+    container.add(card);
+
+    // 3. Header Container
+    const headerY = cardY - cardHeight / 2 + 38;
+    const title = scene.add.text(cardX, headerY, '🏆 FAMILY LEADERBOARD 🏆', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '28px',
+      fontStyle: 'bold',
+      color: '#f59e0b',
+      stroke: '#0f172a',
+      strokeThickness: 5,
+    }).setOrigin(0.5);
+    container.add(title);
+
+    // Close button (X) top right
+    const closeBtnX = cardX + cardWidth / 2 - 32;
+    const closeBtnY = headerY;
+    const closeBtn = scene.add.container(closeBtnX, closeBtnY);
+    const closeBg = scene.add.circle(0, 0, 18, 0x334155, 0.9);
+    closeBg.setStrokeStyle(1.5, 0x94a3b8);
+    const closeText = scene.add.text(0, -1, '✕', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    }).setOrigin(0.5);
+    closeBtn.add([closeBg, closeText]);
+    closeBtn.setSize(36, 36);
+    closeBtn.setInteractive(new Phaser.Geom.Circle(18, 18, 18), Phaser.Geom.Circle.Contains);
+    if (closeBtn.input) closeBtn.input.cursor = 'pointer';
+
+    let isClosed = false;
+    const doClose = () => {
+      if (isClosed) return;
+      isClosed = true;
+      sound.playClick();
+      container.destroy();
+      if (options?.onClose) options.onClose();
+    };
+
+    closeBtn.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (p.button !== 0 && p.button !== undefined) return;
+      doClose();
+    });
+    container.add(closeBtn);
+
+    // Nickname Pill Bar under title
+    const nicknamePillY = headerY + 40;
+    const nicknamePill = scene.add.container(cardX, nicknamePillY);
+    const nickPillBg = scene.add.graphics();
+    const currentNick = leaderboardService.getNickname();
+    const nickPillText = scene.add.text(0, 0, `👤 Player: ${currentNick} ✏️`, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '15px',
+      fontStyle: 'bold',
+      color: '#c7d2fe',
+    }).setOrigin(0.5);
+
+    const nickPillWidth = Math.max(nickPillText.width + 30, 180);
+    nickPillBg.fillStyle(0x312e81, 0.9);
+    nickPillBg.lineStyle(1.5, 0x818cf8, 0.8);
+    nickPillBg.fillRoundedRect(-nickPillWidth / 2, -15, nickPillWidth, 30, 15);
+    nickPillBg.strokeRoundedRect(-nickPillWidth / 2, -15, nickPillWidth, 30, 15);
+    nicknamePill.add([nickPillBg, nickPillText]);
+    nicknamePill.setSize(nickPillWidth, 30);
+    nicknamePill.setInteractive(new Phaser.Geom.Rectangle(0, 0, nickPillWidth, 30), Phaser.Geom.Rectangle.Contains);
+    if (nicknamePill.input) nicknamePill.input.cursor = 'pointer';
+
+    nicknamePill.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (p.button !== 0 && p.button !== undefined) return;
+      sound.playClick();
+      GameModals.showNicknamePrompt(scene, (newName) => {
+        nickPillText.setText(`👤 Player: ${newName} ✏️`);
+        refreshList();
+      });
+    });
+    container.add(nicknamePill);
+
+    // 4. Mode Selection Tabs
+    const tabsY = nicknamePillY + 44;
+    const tabWidth = (cardWidth - 80) / 2;
+    const tabHeight = 44;
+
+    const taTabContainer = scene.add.container(cardX - tabWidth / 2 - 6, tabsY);
+    const taTabBg = scene.add.graphics();
+    const taTabText = scene.add.text(0, 0, '⏱️ TIME ATTACK', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '16px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    }).setOrigin(0.5);
+    taTabContainer.add([taTabBg, taTabText]);
+    taTabContainer.setSize(tabWidth, tabHeight);
+    taTabContainer.setInteractive(new Phaser.Geom.Rectangle(0, 0, tabWidth, tabHeight), Phaser.Geom.Rectangle.Contains);
+    if (taTabContainer.input) taTabContainer.input.cursor = 'pointer';
+
+    const erTabContainer = scene.add.container(cardX + tabWidth / 2 + 6, tabsY);
+    const erTabBg = scene.add.graphics();
+    const erTabText = scene.add.text(0, 0, '❤️ ENDLESS RUSH', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '16px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    }).setOrigin(0.5);
+    erTabContainer.add([erTabBg, erTabText]);
+    erTabContainer.setSize(tabWidth, tabHeight);
+    erTabContainer.setInteractive(new Phaser.Geom.Rectangle(0, 0, tabWidth, tabHeight), Phaser.Geom.Rectangle.Contains);
+    if (erTabContainer.input) erTabContainer.input.cursor = 'pointer';
+
+    container.add([taTabContainer, erTabContainer]);
+
+    const updateTabStyles = () => {
+      taTabBg.clear();
+      erTabBg.clear();
+
+      if (currentMode === 'time_attack') {
+        taTabBg.fillStyle(0xf43f5e, 1);
+        taTabBg.fillRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 14);
+        taTabText.setColor('#ffffff');
+
+        erTabBg.fillStyle(0x0f172a, 0.7);
+        erTabBg.lineStyle(1.5, 0x475569, 1);
+        erTabBg.fillRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 14);
+        erTabBg.strokeRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 14);
+        erTabText.setColor('#94a3b8');
+      } else {
+        erTabBg.fillStyle(0x0284c7, 1);
+        erTabBg.fillRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 14);
+        erTabText.setColor('#ffffff');
+
+        taTabBg.fillStyle(0x0f172a, 0.7);
+        taTabBg.lineStyle(1.5, 0x475569, 1);
+        taTabBg.fillRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 14);
+        taTabBg.strokeRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 14);
+        taTabText.setColor('#94a3b8');
+      }
+    };
+    updateTabStyles();
+
+    taTabContainer.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (p.button !== 0 && p.button !== undefined) return;
+      if (currentMode === 'time_attack') return;
+      currentMode = 'time_attack';
+      sound.playClick();
+      updateTabStyles();
+      refreshList();
+    });
+
+    erTabContainer.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (p.button !== 0 && p.button !== undefined) return;
+      if (currentMode === 'endless') return;
+      currentMode = 'endless';
+      sound.playClick();
+      updateTabStyles();
+      refreshList();
+    });
+
+    // 5. Table Header Bar
+    const tableHeaderY = tabsY + 36;
+    const colRankX = cardX - cardWidth / 2 + 40;
+    const colPlayerX = cardX - cardWidth / 2 + 130;
+    const colScoreX = cardX + cardWidth / 2 - 40;
+
+    const rankHeader = scene.add.text(colRankX, tableHeaderY, 'RANK', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '13px',
+      fontStyle: 'bold',
+      color: '#94a3b8',
+      letterSpacing: 1,
+    }).setOrigin(0, 0.5);
+
+    const playerHeader = scene.add.text(colPlayerX, tableHeaderY, 'PLAYER', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '13px',
+      fontStyle: 'bold',
+      color: '#94a3b8',
+      letterSpacing: 1,
+    }).setOrigin(0, 0.5);
+
+    const scoreHeader = scene.add.text(colScoreX, tableHeaderY, 'BEST SCORE', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '13px',
+      fontStyle: 'bold',
+      color: '#94a3b8',
+      letterSpacing: 1,
+    }).setOrigin(1, 0.5);
+
+    const tableDiv = scene.add.graphics();
+    tableDiv.lineStyle(1, 0x334155, 1);
+    tableDiv.strokeLineShape(
+      new Phaser.Geom.Line(cardX - cardWidth / 2 + 25, tableHeaderY + 16, cardX + cardWidth / 2 - 25, tableHeaderY + 16)
+    );
+    container.add([rankHeader, playerHeader, scoreHeader, tableDiv]);
+
+    // 6. Dynamic List Rows Container
+    const rowsContainer = scene.add.container(0, 0);
+    container.add(rowsContainer);
+
+    // 7. Pinned Player Rank Footer
+    const footerY = cardY + cardHeight / 2 - 120;
+    const footerBox = scene.add.container(cardX, footerY);
+    const footerBg = scene.add.graphics();
+    const footerText = scene.add.text(0, 0, '', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '16px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    }).setOrigin(0.5);
+    footerBox.add([footerBg, footerText]);
+    container.add(footerBox);
+
+    const updateFooter = (rank: number | null, entry: LeaderboardEntry | null) => {
+      footerBg.clear();
+      const storage = StorageService.getInstance();
+      const localScore = currentMode === 'time_attack' ? storage.getTimeAttackHighScore() : storage.getEndlessHighScore();
+      const name = leaderboardService.getNickname();
+      const boxW = cardWidth - 50;
+      const boxH = 46;
+
+      if (rank === 1) {
+        footerBg.fillStyle(0x78350f, 0.95);
+        footerBg.lineStyle(2, 0xf59e0b, 1);
+        footerBg.fillRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
+        footerBg.strokeRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
+        footerText.setText(`👑 YOUR RANK: #1 (LEADER!)  •  ${name}  •  ${(entry?.score || localScore).toLocaleString()} pts`);
+        footerText.setColor('#fef08a');
+      } else if (rank && rank > 1) {
+        footerBg.fillStyle(0x312e81, 0.95);
+        footerBg.lineStyle(2, 0x818cf8, 1);
+        footerBg.fillRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
+        footerBg.strokeRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
+        footerText.setText(`YOUR RANK: #${rank}  •  ${name}  •  ${(entry?.score || localScore).toLocaleString()} pts`);
+        footerText.setColor('#ffffff');
+      } else if (localScore > 0) {
+        footerBg.fillStyle(0x1e293b, 0.95);
+        footerBg.lineStyle(1.5, 0x64748b, 1);
+        footerBg.fillRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
+        footerBg.strokeRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
+        footerText.setText(`YOUR BEST: ${localScore.toLocaleString()} pts  •  Play another round to rank!`);
+        footerText.setColor('#cbd5e1');
+      } else {
+        footerBg.fillStyle(0x1e293b, 0.95);
+        footerBg.lineStyle(1.5, 0x475569, 1);
+        footerBg.fillRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
+        footerBg.strokeRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
+        footerText.setText(`YOUR BEST: 0 pts  •  Play ${currentMode === 'time_attack' ? 'Time Attack' : 'Endless Rush'} to join!`);
+        footerText.setColor('#94a3b8');
+      }
+    };
+
+    // 8. Bottom Action Navigation Buttons
+    const actionY = cardY + cardHeight / 2 - 50;
+
+    if (options?.fromGameOver) {
+      // 1. PLAY AGAIN button
+      const playAgainBtn = scene.add.container(cardX - 110, actionY);
+      const paBg = scene.add.graphics();
+      paBg.fillStyle(0x10b981, 1);
+      paBg.fillRoundedRect(-95, -22, 190, 44, 14);
+      const paText = scene.add.text(0, 0, 'PLAY AGAIN ▶', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      }).setOrigin(0.5);
+      playAgainBtn.add([paBg, paText]);
+      playAgainBtn.setSize(190, 44);
+      playAgainBtn.setInteractive(new Phaser.Geom.Rectangle(0, 0, 190, 44), Phaser.Geom.Rectangle.Contains);
+      if (playAgainBtn.input) playAgainBtn.input.cursor = 'pointer';
+
+      playAgainBtn.on('pointerdown', (p: Phaser.Input.Pointer) => {
+        if (p.button !== 0 && p.button !== undefined) return;
+        sound.playClick();
+        container.destroy();
+        if (options.onPlayAgain) {
+          options.onPlayAgain(currentMode);
+        } else {
+          scene.scene.start('GameScene', { mode: currentMode });
+        }
+      });
+
+      // 2. MAIN MENU button
+      const menuBtn = scene.add.container(cardX + 110, actionY);
+      const mBg = scene.add.graphics();
+      mBg.fillStyle(0x6366f1, 1);
+      mBg.fillRoundedRect(-95, -22, 190, 44, 14);
+      const mText = scene.add.text(0, 0, 'MAIN MENU 🏠', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      }).setOrigin(0.5);
+      menuBtn.add([mBg, mText]);
+      menuBtn.setSize(190, 44);
+      menuBtn.setInteractive(new Phaser.Geom.Rectangle(0, 0, 190, 44), Phaser.Geom.Rectangle.Contains);
+      if (menuBtn.input) menuBtn.input.cursor = 'pointer';
+
+      menuBtn.on('pointerdown', (p: Phaser.Input.Pointer) => {
+        if (p.button !== 0 && p.button !== undefined) return;
+        sound.playClick();
+        container.destroy();
+        if (options.onBackToMenu) {
+          options.onBackToMenu();
+        } else {
+          scene.scene.start('MenuScene');
+        }
+      });
+
+      container.add([playAgainBtn, menuBtn]);
+    } else {
+      // From MenuScene: PLAY NOW + CLOSE
+      const playNowBtn = scene.add.container(cardX - 100, actionY);
+      const pnBg = scene.add.graphics();
+      pnBg.fillStyle(0x10b981, 1);
+      pnBg.fillRoundedRect(-85, -22, 170, 44, 14);
+      const pnText = scene.add.text(0, 0, 'PLAY NOW ▶', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      }).setOrigin(0.5);
+      playNowBtn.add([pnBg, pnText]);
+      playNowBtn.setSize(170, 44);
+      playNowBtn.setInteractive(new Phaser.Geom.Rectangle(0, 0, 170, 44), Phaser.Geom.Rectangle.Contains);
+      if (playNowBtn.input) playNowBtn.input.cursor = 'pointer';
+
+      playNowBtn.on('pointerdown', (p: Phaser.Input.Pointer) => {
+        if (p.button !== 0 && p.button !== undefined) return;
+        sound.playClick();
+        container.destroy();
+        scene.scene.start('GameScene', { mode: currentMode });
+      });
+
+      const closeActionBtn = scene.add.container(cardX + 100, actionY);
+      const caBg = scene.add.graphics();
+      caBg.fillStyle(0x475569, 1);
+      caBg.fillRoundedRect(-85, -22, 170, 44, 14);
+      const caText = scene.add.text(0, 0, 'CLOSE', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      }).setOrigin(0.5);
+      closeActionBtn.add([caBg, caText]);
+      closeActionBtn.setSize(170, 44);
+      closeActionBtn.setInteractive(new Phaser.Geom.Rectangle(0, 0, 170, 44), Phaser.Geom.Rectangle.Contains);
+      if (closeActionBtn.input) closeActionBtn.input.cursor = 'pointer';
+
+      closeActionBtn.on('pointerdown', (p: Phaser.Input.Pointer) => {
+        if (p.button !== 0 && p.button !== undefined) return;
+        doClose();
+      });
+
+      container.add([playNowBtn, closeActionBtn]);
+    }
+
+    // Refresh function that populates the leaderboard list
+    const refreshList = async () => {
+      rowsContainer.removeAll(true);
+
+      // Loading state
+      const loadingY = tableHeaderY + 120;
+      const loadingText = scene.add.text(cardX, loadingY, 'Loading rankings... 🔄', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '20px',
+        fontStyle: 'bold',
+        color: '#fbbf24',
+      }).setOrigin(0.5);
+      rowsContainer.add(loadingText);
+
+      const result = await leaderboardService.fetchLeaderboard(currentMode);
+      rowsContainer.removeAll(true);
+
+      updateFooter(result.currentUserRank, result.currentUserEntry);
+
+      // Offline warning indicator banner if applicable
+      if (result.isOfflineFallback) {
+        const warnY = tableHeaderY + 36;
+        const warnBg = scene.add.graphics();
+        warnBg.fillStyle(0x7c2d12, 0.85);
+        warnBg.lineStyle(1, 0xf97316, 1);
+        warnBg.fillRoundedRect(cardX - (cardWidth - 50) / 2, warnY - 14, cardWidth - 50, 32, 8);
+        warnBg.strokeRoundedRect(cardX - (cardWidth - 50) / 2, warnY - 14, cardWidth - 50, 32, 8);
+
+        const warnText = scene.add.text(cardX, warnY + 2, '📡 Offline Mode: Displaying saved local high score.', {
+          fontFamily: "'Fredoka', sans-serif",
+          fontSize: '13px',
+          fontStyle: 'bold',
+          color: '#fdba74',
+        }).setOrigin(0.5);
+        rowsContainer.add([warnBg, warnText]);
+      }
+
+      if (result.entries.length === 0) {
+        const emptyY = tableHeaderY + 140;
+        const emptyText = scene.add.text(cardX, emptyY, 'No scores recorded yet!\nBe the first family champion! 🎈', {
+          fontFamily: "'Fredoka', sans-serif",
+          fontSize: '20px',
+          fontStyle: 'bold',
+          color: '#94a3b8',
+          align: 'center',
+          lineSpacing: 8,
+        }).setOrigin(0.5);
+        rowsContainer.add(emptyText);
+        return;
+      }
+
+      // Display top 8 entries
+      const startRowY = result.isOfflineFallback ? tableHeaderY + 68 : tableHeaderY + 38;
+      const rowHeight = 44;
+      const maxRows = Math.min(result.entries.length, 8);
+
+      for (let i = 0; i < maxRows; i++) {
+        const entry = result.entries[i];
+        const rowY = startRowY + i * rowHeight;
+        const isFirst = entry.rank === 1;
+        const isCurrent = entry.isCurrentUser;
+
+        // Row background pill
+        const rowBg = scene.add.graphics();
+        const rowW = cardWidth - 50;
+
+        if (isFirst) {
+          rowBg.fillStyle(0x78350f, 0.7);
+          rowBg.lineStyle(1.5, 0xf59e0b, 1);
+          rowBg.fillRoundedRect(cardX - rowW / 2, rowY - 18, rowW, 36, 10);
+          rowBg.strokeRoundedRect(cardX - rowW / 2, rowY - 18, rowW, 36, 10);
+        } else if (isCurrent) {
+          rowBg.fillStyle(0x1e3a8a, 0.7);
+          rowBg.lineStyle(1.5, 0x38bdf8, 1);
+          rowBg.fillRoundedRect(cardX - rowW / 2, rowY - 18, rowW, 36, 10);
+          rowBg.strokeRoundedRect(cardX - rowW / 2, rowY - 18, rowW, 36, 10);
+        } else if (i % 2 === 1) {
+          rowBg.fillStyle(0x312e81, 0.4);
+          rowBg.fillRoundedRect(cardX - rowW / 2, rowY - 18, rowW, 36, 10);
+        }
+        rowsContainer.add(rowBg);
+
+        // Rank label (Crown for 1st place)
+        let rankStr = `#${entry.rank}`;
+        let rankColor = '#cbd5e1';
+        if (entry.rank === 1) {
+          rankStr = '👑 #1';
+          rankColor = '#fef08a';
+        } else if (entry.rank === 2) {
+          rankStr = '🥈 #2';
+          rankColor = '#e2e8f0';
+        } else if (entry.rank === 3) {
+          rankStr = '🥉 #3';
+          rankColor = '#fdba74';
+        }
+
+        const rankText = scene.add.text(colRankX, rowY, rankStr, {
+          fontFamily: "'Fredoka', sans-serif",
+          fontSize: '17px',
+          fontStyle: 'bold',
+          color: rankColor,
+        }).setOrigin(0, 0.5);
+
+        // Player name + (YOU) badge
+        const nickDisplay = entry.nickname.length > 13 ? `${entry.nickname.substring(0, 12)}…` : entry.nickname;
+        const playerText = scene.add.text(colPlayerX, rowY, nickDisplay, {
+          fontFamily: "'Fredoka', sans-serif",
+          fontSize: '17px',
+          fontStyle: 'bold',
+          color: isFirst ? '#fef08a' : (isCurrent ? '#38bdf8' : '#ffffff'),
+        }).setOrigin(0, 0.5);
+
+        if (isCurrent) {
+          const youBadge = scene.add.text(colPlayerX + playerText.width + 8, rowY, 'YOU', {
+            fontFamily: "'Fredoka', sans-serif",
+            fontSize: '11px',
+            fontStyle: 'bold',
+            color: '#4ade80',
+            backgroundColor: '#14532d',
+            padding: { left: 4, right: 4, top: 2, bottom: 2 },
+          }).setOrigin(0, 0.5);
+          rowsContainer.add(youBadge);
+        }
+
+        // Score
+        const scoreStr = entry.score.toLocaleString();
+        const scoreText = scene.add.text(colScoreX, rowY, scoreStr, {
+          fontFamily: "'Fredoka', sans-serif",
+          fontSize: '18px',
+          fontStyle: 'bold',
+          color: isFirst ? '#fef08a' : '#38bdf8',
+        }).setOrigin(1, 0.5);
+
+        rowsContainer.add([rankText, playerText, scoreText]);
+      }
+    };
+
+    // Initial load
+    refreshList();
+
+    // Modal Entrance Animation
     container.setScale(0.9);
     container.setAlpha(0);
     scene.tweens.add({

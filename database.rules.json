@@ -1,0 +1,33 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['nickname']) && newData.child('nickname').isString() && newData.child('nickname').val().length >= 2 && newData.child('nickname').val().length <= 20"
+      }
+    },
+    "leaderboards": {
+      "time_attack": {
+        ".indexOn": ["score"],
+        ".read": "auth != null",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['uid', 'nickname', 'score', 'updatedAt']) && newData.child('uid').val() === $uid && newData.child('score').isNumber() && newData.child('score').val() >= 0 && newData.child('score').val() <= 1000000 && newData.child('nickname').isString() && newData.child('nickname').val().length >= 2 && newData.child('nickname').val().length <= 20 && newData.child('updatedAt').isNumber() && (!data.exists() || newData.child('score').val() >= data.child('score').val())"
+        }
+      },
+      "endless": {
+        ".indexOn": ["score"],
+        ".read": "auth != null",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['uid', 'nickname', 'score', 'updatedAt']) && newData.child('uid').val() === $uid && newData.child('score').isNumber() && newData.child('score').val() >= 0 && newData.child('score').val() <= 1000000 && newData.child('nickname').isString() && newData.child('nickname').val().length >= 2 && newData.child('nickname').val().length <= 20 && newData.child('updatedAt').isNumber() && (!newData.hasChild('survivalTime') || (newData.child('survivalTime').isNumber() && newData.child('survivalTime').val() >= 0)) && (!data.exists() || newData.child('score').val() >= data.child('score').val())"
+        }
+      },
+      "$other": {
+        ".read": false,
+        ".write": false
+      }
+    }
+  }
+}

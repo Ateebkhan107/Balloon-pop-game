@@ -7,6 +7,7 @@ import { GameModals } from '../ui/GameModals';
 import { ColorRushManager } from '../services/ColorRushManager';
 import { FeverManager } from '../services/FeverManager';
 import { BalloonTheme, BALLOON_COLORS } from '../services/AssetGenerator';
+import { LeaderboardService } from '../services/LeaderboardService';
 
 export type GameModeType = 'time_attack' | 'endless';
 
@@ -1411,6 +1412,13 @@ export class GameScene extends Phaser.Scene {
       highScore = storage.getEndlessHighScore();
       bestSurvivalTime = storage.getEndlessBestTime();
     }
+
+    // Automatically submit score to shared Firebase Family Leaderboard on round completion
+    LeaderboardService.getInstance()
+      .submitScore(this.mode, this.score, Math.floor(this.survivalTime))
+      .catch((err) => {
+        console.warn('[GameScene] Leaderboard submission error:', err);
+      });
 
     const stats: GameStats = {
       mode: this.mode,
