@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Balloon, BalloonType } from '../entities/Balloon';
 import { SoundService } from '../services/SoundService';
-import { StorageService } from '../services/StorageService';
+import { StorageService, BACKGROUND_THEMES } from '../services/StorageService';
 import { FloatingText } from '../ui/FloatingText';
 import { GameModals } from '../ui/GameModals';
 import { ColorRushManager } from '../services/ColorRushManager';
@@ -209,7 +209,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createBackground(width: number, height: number): void {
-    if (this.textures.exists('bg_sky')) {
+    const storage = StorageService.getInstance();
+    const themeId = storage.getBackgroundTheme();
+    const theme = BACKGROUND_THEMES[themeId] || BACKGROUND_THEMES.dreamy_sky;
+
+    if (this.textures.exists(theme.textureKey)) {
+      const bg = this.add.image(width / 2, height / 2, theme.textureKey);
+      const scaleX = width / bg.width;
+      const scaleY = height / bg.height;
+      bg.setScale(Math.max(scaleX, scaleY));
+    } else if (this.textures.exists('bg_sky')) {
       const bg = this.add.image(width / 2, height / 2, 'bg_sky');
       const scaleX = width / bg.width;
       const scaleY = height / bg.height;
@@ -220,7 +229,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const overlay = this.add.graphics();
-    overlay.fillGradientStyle(0x0f172a, 0x0f172a, 0x0284c7, 0x0284c7, 0.45, 0.45, 0.15, 0.15);
+    overlay.fillGradientStyle(0x0f172a, 0x0f172a, theme.overlayColor, theme.overlayColor, 0.40, 0.40, theme.overlayAlpha, theme.overlayAlpha);
     overlay.fillRect(0, 0, width, height);
   }
 
@@ -393,6 +402,26 @@ export class GameScene extends Phaser.Scene {
       yoyo: true,
       ease: 'Back.easeOut',
     });
+  }
+
+  private updateTargetColorProgress(): void {
+    if (!this.targetColorProgressRing || !this.colorRushManager) return;
+    this.targetColorProgressRing.clear();
+
+    const badgeWidth = 200;
+    const badgeHeight = 52;
+    const progress = this.colorRushManager.getProgress(); // 0 -> 1
+
+    const barWidth = badgeWidth - 36;
+    const currentW = Math.max(0, barWidth * (1 - progress));
+
+    // Subtle dark track
+    this.targetColorProgressRing.fillStyle(0x0f172a, 0.5);
+    this.targetColorProgressRing.fillRoundedRect(-barWidth / 2, badgeHeight / 2 - 8, barWidth, 4, 2);
+
+    // Dynamic bright timer bar
+    this.targetColorProgressRing.fillStyle(0xffffff, 0.9);
+    this.targetColorProgressRing.fillRoundedRect(-barWidth / 2, badgeHeight / 2 - 8, currentW, 4, 2);
   }
 
   private announceColorSwitch(theme: BalloonTheme): void {
@@ -647,8 +676,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleBalloonPop(balloon: Balloon, pointer?: Phaser.Input.Pointer): void {
-    if (balloon.isPopped) return;
-    balloon.pop();
+    if (balloon.isPopped || !this.isPlaying || this.isPaused || this.isEnding) return;
 
     const sound = SoundService.getInstance();
     const settings = StorageService.getInstance().getSettings();
@@ -663,21 +691,25 @@ export class GameScene extends Phaser.Scene {
       const dist = Phaser.Math.Distance.Between(pointer.worldX, pointer.worldY, bx, by - 25);
       if (dist <= 22) {
         isPerfect = true;
-        this.perfectPops++;
-        sound.playPerfect();
-        FloatingText.show(this, bx, by - 40, 'PERFECT! +50', '#fef08a', '26px');
-        this.feverManager.addCharge(25);
       }
     }
 
     const feverActive = this.feverManager.isActive();
     const feverMultiplier = feverActive ? 2 : 1;
 
-    // --- 1. SPECIAL BALLOONS ---
+    // --- 1. SPECIAL BALLOONS (All specials pop on tap) ---
     if (type === 'golden') {
+      balloon.pop();
       this.totalPopped++;
       this.goldenPopped++;
       this.refreshCombo();
+
+      if (isPerfect) {
+        this.perfectPops++;
+        sound.playPerfect();
+        FloatingText.show(this, bx, by - 40, 'PERFECT! +50', '#fef08a', '26px');
+        this.feverManager.addCharge(25);
+      }
 
       const earned = (balloon.scoreValue + (isPerfect ? 50 : 0)) * this.combo * feverMultiplier;
       this.addScore(earned);
@@ -696,8 +728,16 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (type === 'rainbow') {
+      balloon.pop();
       this.totalPopped++;
       this.refreshCombo();
+
+      if (isPerfect) {
+        this.perfectPops++;
+        sound.playPerfect();
+        FloatingText.show(this, bx, by - 40, 'PERFECT! +50', '#fef08a', '26px');
+        this.feverManager.addCharge(25);
+      }
 
       const earned = (balloon.scoreValue + (isPerfect ? 50 : 0)) * this.combo * feverMultiplier;
       this.addScore(earned);
@@ -710,8 +750,16 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (type === 'freeze') {
+      balloon.pop();
       this.totalPopped++;
       this.refreshCombo();
+
+      if (isPerfect) {
+        this.perfectPops++;
+        sound.playPerfect();
+        FloatingText.show(this, bx, by - 40, 'PERFECT! +50', '#fef08a', '26px');
+        this.feverManager.addCharge(25);
+      }
 
       const earned = (balloon.scoreValue + (isPerfect ? 50 : 0)) * this.combo * feverMultiplier;
       this.addScore(earned);
@@ -724,6 +772,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (type === 'hazard') {
+      balloon.pop();
       this.hazardsHit++;
       this.breakCombo();
       this.feverManager.deductCharge(25);
@@ -751,9 +800,18 @@ export class GameScene extends Phaser.Scene {
     const isValidTarget = matchCheck.isMatch || feverActive;
 
     if (isValidTarget) {
+      // ONLY matching color balloon pops and earns points!
+      balloon.pop();
       this.totalPopped++;
       this.refreshCombo();
       this.feverManager.addCharge(14);
+
+      if (isPerfect) {
+        this.perfectPops++;
+        sound.playPerfect();
+        FloatingText.show(this, bx, by - 40, 'PERFECT! +50', '#fef08a', '26px');
+        this.feverManager.addCharge(25);
+      }
 
       const theme = BALLOON_COLORS[balloon.colorKey] || BALLOON_COLORS.red;
       const earned = (balloon.scoreValue + (isPerfect ? 50 : 0)) * this.combo * feverMultiplier;
@@ -775,20 +833,60 @@ export class GameScene extends Phaser.Scene {
         this.cameras.main.shake(120, 0.005);
       }
     } else {
-      // WRONG COLOR POPPED!
-      this.breakCombo();
-      this.feverManager.deductCharge(20);
+      // WRONG COLOR TAP!
+      // Balloon does NOT pop! Score does NOT increase!
+      const lastWrongTap = (balloon as unknown as { lastWrongTapTime?: number }).lastWrongTapTime || 0;
+      if (currentTime - lastWrongTap < 260) return;
+      (balloon as unknown as { lastWrongTapTime?: number }).lastWrongTapTime = currentTime;
 
-      if (this.mode === 'time_attack') {
-        this.deductScore(100);
-        sound.playWrongColor();
-        FloatingText.show(this, bx, by, 'WRONG COLOR! -100', '#ef4444', '28px');
-        if (!settings.reducedMotion) this.cameras.main.shake(140, 0.008);
-      } else {
-        // Endless Mode: Wrong color pop costs 1 life!
+      // Small ❌ visual effect at tap location
+      this.showWrongTapEffect(pointer ? pointer.worldX : bx, pointer ? pointer.worldY : by);
+
+      // Subtle error sound
+      sound.playWrongColor();
+
+      // Reset combo
+      this.breakCombo();
+      this.feverManager.deductCharge(15);
+
+      // Subtle wobble tween on the intact balloon
+      this.tweens.add({
+        targets: balloon,
+        scaleX: 1.15,
+        scaleY: 0.9,
+        duration: 55,
+        yoyo: true,
+        repeat: 1,
+        ease: 'Quad.easeInOut',
+      });
+
+      if (this.mode === 'endless') {
+        // Endless Mode: Wrong color tap costs 1 life
         this.deductLife('WRONG COLOR!');
+      } else {
+        // Time Attack: No score gain, reset combo
+        if (!settings.reducedMotion) this.cameras.main.shake(100, 0.005);
       }
     }
+  }
+
+  private showWrongTapEffect(x: number, y: number): void {
+    const cross = this.add.text(x, y, '❌', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '28px',
+    }).setOrigin(0.5).setDepth(160);
+
+    cross.setScale(0.5);
+    this.tweens.add({
+      targets: cross,
+      scaleX: 1.25,
+      scaleY: 1.25,
+      y: y - 28,
+      alpha: 0,
+      duration: 380,
+      ease: 'Back.easeOut',
+      onComplete: () => cross.destroy(),
+    });
   }
 
   private handleBalloonEscape(balloon: Balloon): void {
@@ -969,6 +1067,7 @@ export class GameScene extends Phaser.Scene {
       this.colorRushManager.setInterval(scaledInterval);
     }
     this.colorRushManager.update(dt, time);
+    this.updateTargetColorProgress();
 
     // 3. UPDATE FEVER SYSTEM
     this.feverManager.update(dt);

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { StorageService } from '../services/StorageService';
+import { StorageService, BACKGROUND_THEMES, BackgroundThemeId } from '../services/StorageService';
 import { SoundService } from '../services/SoundService';
 import { GameModals } from '../ui/GameModals';
 
@@ -10,6 +10,7 @@ export class MenuScene extends Phaser.Scene {
   private modeButtons: Phaser.GameObjects.Container[] = [];
   private isStartingGame: boolean = false;
   private playerPillText?: Phaser.GameObjects.Text;
+  private bgImage?: Phaser.GameObjects.Image;
 
   constructor() {
     super({ key: 'MenuScene' });
@@ -65,20 +66,40 @@ export class MenuScene extends Phaser.Scene {
   }
 
   private createBackground(width: number, height: number): void {
-    if (this.textures.exists('bg_sky')) {
-      const bg = this.add.image(width / 2, height / 2, 'bg_sky');
-      const scaleX = width / bg.width;
-      const scaleY = height / bg.height;
-      bg.setScale(Math.max(scaleX, scaleY));
-      bg.setTint(0x94a3b8);
+    const storage = StorageService.getInstance();
+    const themeId = storage.getBackgroundTheme();
+    const theme = BACKGROUND_THEMES[themeId] || BACKGROUND_THEMES.dreamy_sky;
+
+    if (this.textures.exists(theme.textureKey)) {
+      this.bgImage = this.add.image(width / 2, height / 2, theme.textureKey);
+      const scaleX = width / this.bgImage.width;
+      const scaleY = height / this.bgImage.height;
+      this.bgImage.setScale(Math.max(scaleX, scaleY));
+    } else if (this.textures.exists('bg_sky')) {
+      this.bgImage = this.add.image(width / 2, height / 2, 'bg_sky');
+      const scaleX = width / this.bgImage.width;
+      const scaleY = height / this.bgImage.height;
+      this.bgImage.setScale(Math.max(scaleX, scaleY));
+      this.bgImage.setTint(0x94a3b8);
     } else {
       const bg = this.add.rectangle(width / 2, height / 2, width, height, 0x1e1b4b);
       bg.setOrigin(0.5);
     }
 
     const overlay = this.add.graphics();
-    overlay.fillGradientStyle(0x0f172a, 0x0f172a, 0x1e1b4b, 0x1e1b4b, 0.65, 0.65, 0.85, 0.85);
+    overlay.fillGradientStyle(0x0f172a, 0x0f172a, theme.overlayColor, theme.overlayColor, 0.55, 0.55, theme.overlayAlpha + 0.35, theme.overlayAlpha + 0.35);
     overlay.fillRect(0, 0, width, height);
+  }
+
+  public updateBackgroundTheme(themeId: BackgroundThemeId): void {
+    const theme = BACKGROUND_THEMES[themeId];
+    if (this.bgImage && theme && this.textures.exists(theme.textureKey)) {
+      this.bgImage.setTexture(theme.textureKey);
+      const { width, height } = this.cameras.main;
+      const scaleX = width / this.bgImage.width;
+      const scaleY = height / this.bgImage.height;
+      this.bgImage.setScale(Math.max(scaleX, scaleY));
+    }
   }
 
   private createAmbientBalloons(width: number, height: number): void {
@@ -155,6 +176,29 @@ export class MenuScene extends Phaser.Scene {
       } else {
         this.scale.startFullscreen();
       }
+    });
+
+    // Theme selector button (48x48)
+    const themeBtn = this.add.container(width - 175, 55).setDepth(20);
+    const themeBg = this.add.circle(0, 0, 24, 0x1e1b4b, 0.85);
+    themeBg.setStrokeStyle(2, 0xa855f7);
+    const themeIcon = this.add.text(0, 0, '🎨', {
+      fontSize: '22px',
+    }).setOrigin(0.5);
+
+    themeBtn.add([themeBg, themeIcon]);
+    themeBtn.setSize(48, 48);
+    themeBtn.setInteractive(new Phaser.Geom.Circle(24, 24, 24), Phaser.Geom.Circle.Contains);
+    if (themeBtn.input) {
+      themeBtn.input.cursor = 'pointer';
+    }
+
+    themeBtn.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0 && pointer.button !== undefined) return;
+      soundService.playClick();
+      GameModals.showThemeSelector(this, (newTheme) => {
+        this.updateBackgroundTheme(newTheme);
+      });
     });
 
     // Player Nickname Pill (top-left)
@@ -590,6 +634,10 @@ export class MenuScene extends Phaser.Scene {
         GameModals.showSettings(this);
       } else if (event.key === 'l' || event.key === 'L') {
         GameModals.showLeaderboard(this);
+      } else if (event.key === 't' || event.key === 'T') {
+        GameModals.showThemeSelector(this, (newTheme) => {
+          this.updateBackgroundTheme(newTheme);
+        });
       }
     });
   }

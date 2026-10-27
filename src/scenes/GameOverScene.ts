@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GameStats } from './GameScene';
 import { SoundService } from '../services/SoundService';
+import { StorageService, BACKGROUND_THEMES } from '../services/StorageService';
 import { GameModals } from '../ui/GameModals';
 
 export class GameOverScene extends Phaser.Scene {
@@ -50,7 +51,17 @@ export class GameOverScene extends Phaser.Scene {
   }
 
   private createBackground(width: number, height: number): void {
-    if (this.textures.exists('bg_sky')) {
+    const storage = StorageService.getInstance();
+    const themeId = storage.getBackgroundTheme();
+    const theme = BACKGROUND_THEMES[themeId] || BACKGROUND_THEMES.dreamy_sky;
+
+    if (this.textures.exists(theme.textureKey)) {
+      const bg = this.add.image(width / 2, height / 2, theme.textureKey);
+      const scaleX = width / bg.width;
+      const scaleY = height / bg.height;
+      bg.setScale(Math.max(scaleX, scaleY));
+      bg.setTint(0x64748b);
+    } else if (this.textures.exists('bg_sky')) {
       const bg = this.add.image(width / 2, height / 2, 'bg_sky');
       const scaleX = width / bg.width;
       const scaleY = height / bg.height;
@@ -61,7 +72,7 @@ export class GameOverScene extends Phaser.Scene {
     }
 
     const overlay = this.add.graphics();
-    overlay.fillGradientStyle(0x0f172a, 0x0f172a, 0x1e1b4b, 0x1e1b4b, 0.75, 0.75, 0.9, 0.9);
+    overlay.fillGradientStyle(0x0f172a, 0x0f172a, theme.overlayColor, theme.overlayColor, 0.75, 0.75, 0.9, 0.9);
     overlay.fillRect(0, 0, width, height);
   }
 

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { StorageService } from '../services/StorageService';
+import { StorageService, BackgroundThemeId, BACKGROUND_THEMES } from '../services/StorageService';
 import { SoundService } from '../services/SoundService';
 import { LeaderboardService, GameModeKey, LeaderboardEntry } from '../services/LeaderboardService';
 
@@ -1212,6 +1212,229 @@ export class GameModals {
     refreshList();
 
     // Modal Entrance Animation
+    container.setScale(0.9);
+    container.setAlpha(0);
+    scene.tweens.add({
+      targets: container,
+      scaleX: 1,
+      scaleY: 1,
+      alpha: 1,
+      duration: 200,
+      ease: 'Back.easeOut',
+    });
+
+    const escKey = scene.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+    const escListener = () => {
+      doClose();
+      escKey?.removeListener('down', escListener);
+    };
+    escKey?.once('down', escListener);
+
+    return container;
+  }
+
+  /**
+   * Displays the 4 background themes selector modal with thumbnails,
+   * active indicator, and immediate preview.
+   */
+  public static showThemeSelector(
+    scene: Phaser.Scene,
+    onSelect?: (themeId: BackgroundThemeId) => void,
+    onClose?: () => void
+  ): Phaser.GameObjects.Container {
+    const { width, height } = scene.cameras.main;
+    const container = scene.add.container(0, 0).setDepth(200);
+    const sound = SoundService.getInstance();
+    const storage = StorageService.getInstance();
+    let currentThemeId = storage.getBackgroundTheme();
+
+    // Dim background overlay
+    const overlay = scene.add.rectangle(width / 2, height / 2, width, height, 0x0f172a, 0.90);
+    overlay.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, height), Phaser.Geom.Rectangle.Contains);
+    container.add(overlay);
+
+    const cardWidth = Math.min(width * 0.92, 580);
+    const cardHeight = Math.min(height * 0.82, 680);
+    const cardX = width / 2;
+    const cardY = height / 2;
+
+    const card = scene.add.graphics();
+    card.fillStyle(0x1e1b4b, 0.98);
+    card.lineStyle(3, 0xa855f7, 1);
+    card.fillRoundedRect(cardX - cardWidth / 2, cardY - cardHeight / 2, cardWidth, cardHeight, 24);
+    card.strokeRoundedRect(cardX - cardWidth / 2, cardY - cardHeight / 2, cardWidth, cardHeight, 24);
+    container.add(card);
+
+    // Header Title
+    const headerY = cardY - cardHeight / 2 + 40;
+    const title = scene.add.text(cardX, headerY, '🎨 BACKGROUND THEMES', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '28px',
+      fontStyle: 'bold',
+      color: '#c084fc',
+      stroke: '#0f172a',
+      strokeThickness: 4,
+    }).setOrigin(0.5);
+
+    const sub = scene.add.text(cardX, headerY + 34, 'Choose your visual arcade atmosphere:', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '15px',
+      color: '#cbd5e1',
+    }).setOrigin(0.5);
+
+    container.add([title, sub]);
+
+    // Close button (X) top right
+    const closeBtnX = cardX + cardWidth / 2 - 32;
+    const closeBtnY = headerY;
+    const closeBtn = scene.add.container(closeBtnX, closeBtnY);
+    const closeBg = scene.add.circle(0, 0, 18, 0x334155, 0.9);
+    closeBg.setStrokeStyle(1.5, 0x94a3b8);
+    const closeText = scene.add.text(0, -1, '✕', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    }).setOrigin(0.5);
+    closeBtn.add([closeBg, closeText]);
+    closeBtn.setSize(36, 36);
+    closeBtn.setInteractive(new Phaser.Geom.Circle(18, 18, 18), Phaser.Geom.Circle.Contains);
+    if (closeBtn.input) closeBtn.input.cursor = 'pointer';
+
+    let isClosed = false;
+    const doClose = () => {
+      if (isClosed) return;
+      isClosed = true;
+      sound.playClick();
+      container.destroy();
+      if (onClose) onClose();
+    };
+
+    closeBtn.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (p.button !== 0 && p.button !== undefined) return;
+      doClose();
+    });
+    container.add(closeBtn);
+
+    // 2x2 Grid of Themes
+    const themeList: BackgroundThemeId[] = ['dreamy_sky', 'neon_night', 'candy_world', 'space_rush'];
+    const colSpacing = 240;
+    const rowSpacing = 200;
+    const gridStartY = cardY - 60;
+    const themeCards: { id: BackgroundThemeId; updateStatus: () => void }[] = [];
+
+    themeList.forEach((themeId, idx) => {
+      const config = BACKGROUND_THEMES[themeId];
+      const col = idx % 2;
+      const row = Math.floor(idx / 2);
+      const tX = cardX + (col === 0 ? -colSpacing / 2 : colSpacing / 2);
+      const tY = gridStartY + row * rowSpacing;
+
+      const tCard = scene.add.container(tX, tY);
+      const tCardW = 224;
+      const tCardH = 175;
+
+      const tBg = scene.add.graphics();
+      tCard.add(tBg);
+
+      // Thumbnail Image
+      if (scene.textures.exists(config.textureKey)) {
+        const thumb = scene.add.image(0, -25, config.textureKey);
+        thumb.setDisplaySize(tCardW - 16, 95);
+        tCard.add(thumb);
+      }
+
+      // Title & Emoji
+      const tTitle = scene.add.text(0, 36, `${config.emoji} ${config.name}`, {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '17px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      }).setOrigin(0.5);
+      tCard.add(tTitle);
+
+      // Active / Select Badge
+      const statusBg = scene.add.graphics();
+      const statusText = scene.add.text(0, 64, '', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '12px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      }).setOrigin(0.5);
+      tCard.add([statusBg, statusText]);
+
+      const updateCardStatus = () => {
+        const isActive = currentThemeId === themeId;
+        tBg.clear();
+        tBg.fillStyle(0x0f172a, 0.9);
+        tBg.lineStyle(isActive ? 3 : 1.5, isActive ? 0x10b981 : 0x475569, 1);
+        tBg.fillRoundedRect(-tCardW / 2, -tCardH / 2, tCardW, tCardH, 16);
+        tBg.strokeRoundedRect(-tCardW / 2, -tCardH / 2, tCardW, tCardH, 16);
+
+        statusBg.clear();
+        if (isActive) {
+          statusBg.fillStyle(0x10b981, 1);
+          statusBg.fillRoundedRect(-50, 52, 100, 24, 12);
+          statusText.setText('✓ ACTIVE');
+          statusText.setColor('#ffffff');
+        } else {
+          statusBg.fillStyle(0x334155, 0.8);
+          statusBg.fillRoundedRect(-45, 52, 90, 24, 12);
+          statusText.setText('SELECT');
+          statusText.setColor('#94a3b8');
+        }
+      };
+
+      updateCardStatus();
+      themeCards.push({ id: themeId, updateStatus: updateCardStatus });
+
+      tCard.setSize(tCardW, tCardH);
+      tCard.setInteractive(new Phaser.Geom.Rectangle(0, 0, tCardW, tCardH), Phaser.Geom.Rectangle.Contains);
+      if (tCard.input) tCard.input.cursor = 'pointer';
+
+      tCard.on('pointerdown', (p: Phaser.Input.Pointer) => {
+        if (p.button !== 0 && p.button !== undefined) return;
+        sound.playClick();
+        currentThemeId = themeId;
+        storage.saveBackgroundTheme(themeId);
+        themeCards.forEach((c) => c.updateStatus());
+        if (onSelect) onSelect(themeId);
+      });
+
+      tCard.on('pointerover', () => {
+        scene.tweens.add({ targets: tCard, scaleX: 1.04, scaleY: 1.04, duration: 120 });
+      });
+      tCard.on('pointerout', () => {
+        scene.tweens.add({ targets: tCard, scaleX: 1.0, scaleY: 1.0, duration: 120 });
+      });
+
+      container.add(tCard);
+    });
+
+    // Bottom Close Button
+    const doneBtnY = cardY + cardHeight / 2 - 45;
+    const doneBtn = scene.add.container(cardX, doneBtnY);
+    const doneBg = scene.add.graphics();
+    doneBg.fillStyle(0xa855f7, 1);
+    doneBg.fillRoundedRect(-90, -22, 180, 44, 14);
+    const doneText = scene.add.text(0, 0, 'DONE', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '18px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    }).setOrigin(0.5);
+    doneBtn.add([doneBg, doneText]);
+    doneBtn.setSize(180, 44);
+    doneBtn.setInteractive(new Phaser.Geom.Rectangle(0, 0, 180, 44), Phaser.Geom.Rectangle.Contains);
+    if (doneBtn.input) doneBtn.input.cursor = 'pointer';
+
+    doneBtn.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (p.button !== 0 && p.button !== undefined) return;
+      doClose();
+    });
+    container.add(doneBtn);
+
+    // Entrance animation
     container.setScale(0.9);
     container.setAlpha(0);
     scene.tweens.add({

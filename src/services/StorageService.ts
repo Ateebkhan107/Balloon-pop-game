@@ -10,6 +10,57 @@ export interface GameRecords {
   endlessBestTime: number; // in seconds
 }
 
+export type BackgroundThemeId = 'dreamy_sky' | 'neon_night' | 'candy_world' | 'space_rush';
+
+export interface ThemeConfig {
+  id: BackgroundThemeId;
+  name: string;
+  emoji: string;
+  textureKey: string;
+  primaryColor: number;
+  overlayColor: number;
+  overlayAlpha: number;
+}
+
+export const BACKGROUND_THEMES: Record<BackgroundThemeId, ThemeConfig> = {
+  dreamy_sky: {
+    id: 'dreamy_sky',
+    name: 'Dreamy Sky',
+    emoji: '☁️',
+    textureKey: 'bg_dreamy_sky',
+    primaryColor: 0x38bdf8,
+    overlayColor: 0x0f172a,
+    overlayAlpha: 0.2,
+  },
+  neon_night: {
+    id: 'neon_night',
+    name: 'Neon Night',
+    emoji: '🌃',
+    textureKey: 'bg_neon_night',
+    primaryColor: 0xa855f7,
+    overlayColor: 0x0f172a,
+    overlayAlpha: 0.35,
+  },
+  candy_world: {
+    id: 'candy_world',
+    name: 'Candy World',
+    emoji: '🍭',
+    textureKey: 'bg_candy_world',
+    primaryColor: 0xf472b6,
+    overlayColor: 0x1e1b4b,
+    overlayAlpha: 0.22,
+  },
+  space_rush: {
+    id: 'space_rush',
+    name: 'Space Rush',
+    emoji: '🚀',
+    textureKey: 'bg_space_rush',
+    primaryColor: 0x818cf8,
+    overlayColor: 0x0f172a,
+    overlayAlpha: 0.35,
+  },
+};
+
 const STORAGE_KEYS = {
   HIGH_SCORE_TIME_ATTACK: 'pop_rush_high_score', // preserved for backward compatibility
   HIGH_SCORE_ENDLESS: 'pop_rush_endless_high_score',
@@ -17,6 +68,7 @@ const STORAGE_KEYS = {
   SETTINGS: 'pop_rush_settings',
   PLAYER_NICKNAME: 'pop_rush_player_nickname',
   FIREBASE_UID: 'pop_rush_firebase_uid',
+  BACKGROUND_THEME: 'pop_rush_bg_theme',
 };
 
 export class StorageService {
@@ -146,6 +198,29 @@ export class StorageService {
   public saveFirebaseUid(uid: string): void {
     try {
       localStorage.setItem(STORAGE_KEYS.FIREBASE_UID, uid);
+    } catch {
+      // Ignore quota errors
+    }
+  }
+
+  // --- BACKGROUND THEMES ---
+
+  public getBackgroundTheme(): BackgroundThemeId {
+    try {
+      const val = localStorage.getItem(STORAGE_KEYS.BACKGROUND_THEME) as BackgroundThemeId | null;
+      if (val && BACKGROUND_THEMES[val]) {
+        return val;
+      }
+    } catch {
+      // Ignore
+    }
+    return 'dreamy_sky';
+  }
+
+  public saveBackgroundTheme(themeId: BackgroundThemeId): void {
+    if (!BACKGROUND_THEMES[themeId]) return;
+    try {
+      localStorage.setItem(STORAGE_KEYS.BACKGROUND_THEME, themeId);
     } catch {
       // Ignore quota errors
     }
