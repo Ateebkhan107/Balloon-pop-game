@@ -14,10 +14,13 @@ const VIEWPORTS = [
   { name: 'Desktop Full HD (1920x1080)', width: 1920, height: 1080, type: 'desktop' },
   { name: 'Desktop Widescreen (1440x900)', width: 1440, height: 900, type: 'desktop' },
   { name: 'Desktop Standard (1366x768)', width: 1366, height: 768, type: 'desktop' },
+  // Tablet
+  { name: 'Tablet iPad Portrait (768x1024)', width: 768, height: 1024, type: 'tablet' },
   // Mobile Portrait
+  { name: 'Mobile Compact iPhone SE1 (320x568)', width: 320, height: 568, type: 'mobile-portrait' },
+  { name: 'Mobile Android Galaxy (360x800)', width: 360, height: 800, type: 'mobile-portrait' },
   { name: 'Mobile iPhone SE (375x667)', width: 375, height: 667, type: 'mobile-portrait' },
   { name: 'Mobile iPhone 12/13/14 (390x844)', width: 390, height: 844, type: 'mobile-portrait' },
-  { name: 'Mobile Android Galaxy (360x800)', width: 360, height: 800, type: 'mobile-portrait' },
   { name: 'Mobile iPhone 15 Pro Max (430x932)', width: 430, height: 932, type: 'mobile-portrait' },
   // Mobile Landscape
   { name: 'Mobile Landscape iPhone SE (667x375)', width: 667, height: 375, type: 'mobile-landscape' },

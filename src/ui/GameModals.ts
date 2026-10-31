@@ -69,7 +69,7 @@ export class GameModals {
     contentY += 115;
 
     // --- SECTION 2: GAME MODES ---
-    const gmTitle = scene.add.text(width / 2, contentY, '⚡ TWO GAME MODES', {
+    const gmTitle = scene.add.text(width / 2, contentY, '⚡ FOUR GAME MODES', {
       fontFamily: "'Fredoka', sans-serif",
       fontSize: '18px',
       fontStyle: 'bold',
@@ -77,27 +77,47 @@ export class GameModals {
     }).setOrigin(0.5);
     container.add(gmTitle);
 
-    contentY += 25;
+    contentY += 24;
 
-    const taText = scene.add.text(width / 2 - cardWidth / 2 + 35, contentY, '⏱️ TIME ATTACK: 30s speedrun. Pop golden balloons for +2s time extensions & build combos into Fever Mode!', {
+    const taText = scene.add.text(width / 2 - cardWidth / 2 + 35, contentY, '⏱️ TIME ATTACK: 30s countdown. Pop target colors & golden balloons (+2s)!', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '14px',
+      fontSize: '13px',
       color: '#cbd5e1',
       wordWrap: { width: cardWidth - 70 },
     });
     container.add(taText);
 
-    contentY += 45;
+    contentY += 34;
 
-    const erText = scene.add.text(width / 2 - cardWidth / 2 + 35, contentY, '❤️ ENDLESS RUSH: 3 Lives. No clock! Wrong color pops, hitting bombs, or letting a valid target escape costs 1 Life.', {
+    const erText = scene.add.text(width / 2 - cardWidth / 2 + 35, contentY, '❤️ ENDLESS RUSH: 3 Lives. Wrong pops, bombs, or missed targets cost a life.', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '14px',
+      fontSize: '13px',
       color: '#cbd5e1',
       wordWrap: { width: cardWidth - 70 },
     });
     container.add(erText);
 
-    contentY += 55;
+    contentY += 34;
+
+    const ccText = scene.add.text(width / 2 - cardWidth / 2 + 35, contentY, '🌈 COLOR CHAOS: 30s speedrun. Target color switches after every 3 (then 2) pops!', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '13px',
+      color: '#cbd5e1',
+      wordWrap: { width: cardWidth - 70 },
+    });
+    container.add(ccText);
+
+    contentY += 34;
+
+    const olText = scene.add.text(width / 2 - cardWidth / 2 + 35, contentY, '💀 ONE LIFE: 1 Life survival. One mistake (wrong pop, bomb, target escape) ends game!', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '13px',
+      color: '#cbd5e1',
+      wordWrap: { width: cardWidth - 70 },
+    });
+    container.add(olText);
+
+    contentY += 46;
 
     // --- SECTION 3: SPECIAL BALLOONS GUIDE ---
     const specTitle = scene.add.text(width / 2, contentY, '✨ SPECIAL BALLOONS', {
@@ -532,6 +552,7 @@ export class GameModals {
 
     const overlay = document.createElement('div');
     overlay.id = 'pop-rush-nickname-modal';
+    overlay.className = 'pop-rush-overlay';
     overlay.style.cssText = `
       position: absolute;
       inset: 0;
@@ -660,7 +681,7 @@ export class GameModals {
         <div class="pop-rush-desc">
           ${currentName ? 'Update your display name for the family rankings:' : 'Enter your name to join the family leaderboard and save high scores:'}
         </div>
-        <input type="text" class="pop-rush-input" id="pop-rush-nick-field" maxlength="15" placeholder="Your nickname..." value="${currentName}" autocomplete="off" />
+        <input type="text" class="pop-rush-input" id="pop-rush-nick-field" maxlength="15" placeholder="Your nickname..." autocomplete="off" />
         <div class="pop-rush-error" id="pop-rush-nick-err"></div>
         <div class="pop-rush-actions">
           <button type="button" class="pop-rush-btn-save" id="pop-rush-nick-submit">SAVE NICKNAME</button>
@@ -676,6 +697,10 @@ export class GameModals {
     const errorEl = overlay.querySelector('#pop-rush-nick-err') as HTMLElement;
     const submitBtn = overlay.querySelector('#pop-rush-nick-submit') as HTMLButtonElement;
     const skipBtn = overlay.querySelector('#pop-rush-nick-skip') as HTMLButtonElement;
+
+    if (inputField && currentName) {
+      inputField.value = currentName;
+    }
 
     setTimeout(() => {
       inputField?.focus();
@@ -716,12 +741,19 @@ export class GameModals {
       }
     });
 
-    inputField?.addEventListener('keydown', (e) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
         handleSave();
+      } else if (e.key === 'Escape') {
+        if (currentName) {
+          closeAndComplete(currentName);
+        } else {
+          closeAndComplete('Player');
+        }
       }
-    });
+    };
+    inputField?.addEventListener('keydown', handleKeyDown);
   }
 
   /**
@@ -872,94 +904,91 @@ export class GameModals {
     });
     container.add(nicknamePill);
 
-    // 4. Mode Selection Tabs
+    // 4. Mode Selection Tabs (4 independent modes)
     const tabsY = nicknamePillY + 44;
-    const tabWidth = (cardWidth - 80) / 2;
-    const tabHeight = 44;
+    const tabGap = 6;
+    const tabWidth = Math.floor((cardWidth - 50 - tabGap * 3) / 4);
+    const tabHeight = 38;
 
-    const taTabContainer = scene.add.container(cardX - tabWidth / 2 - 6, tabsY);
-    const taTabBg = scene.add.graphics();
-    const taTabText = scene.add.text(0, 0, '⏱️ TIME ATTACK', {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '16px',
-      fontStyle: 'bold',
-      color: '#ffffff',
-    }).setOrigin(0.5);
-    taTabContainer.add([taTabBg, taTabText]);
-    taTabContainer.setSize(tabWidth, tabHeight);
-    taTabContainer.setInteractive(new Phaser.Geom.Rectangle(0, 0, tabWidth, tabHeight), Phaser.Geom.Rectangle.Contains);
-    if (taTabContainer.input) taTabContainer.input.cursor = 'pointer';
+    const tabConfigs: { mode: GameModeKey; label: string; activeColor: number }[] = [
+      { mode: 'time_attack', label: '⏱️ TIME', activeColor: 0xf43f5e },
+      { mode: 'endless', label: '❤️ ENDLESS', activeColor: 0x0284c7 },
+      { mode: 'color_chaos', label: '🌈 CHAOS', activeColor: 0xa855f7 },
+      { mode: 'one_life', label: '💀 ONE LIFE', activeColor: 0xef4444 },
+    ];
 
-    const erTabContainer = scene.add.container(cardX + tabWidth / 2 + 6, tabsY);
-    const erTabBg = scene.add.graphics();
-    const erTabText = scene.add.text(0, 0, '❤️ ENDLESS RUSH', {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '16px',
-      fontStyle: 'bold',
-      color: '#ffffff',
-    }).setOrigin(0.5);
-    erTabContainer.add([erTabBg, erTabText]);
-    erTabContainer.setSize(tabWidth, tabHeight);
-    erTabContainer.setInteractive(new Phaser.Geom.Rectangle(0, 0, tabWidth, tabHeight), Phaser.Geom.Rectangle.Contains);
-    if (erTabContainer.input) erTabContainer.input.cursor = 'pointer';
+    const tabContainers: {
+      mode: GameModeKey;
+      container: Phaser.GameObjects.Container;
+      bg: Phaser.GameObjects.Graphics;
+      text: Phaser.GameObjects.Text;
+      activeColor: number;
+    }[] = [];
 
-    container.add([taTabContainer, erTabContainer]);
+    const startTabX = cardX - (cardWidth - 50) / 2 + tabWidth / 2;
+
+    tabConfigs.forEach((cfg, idx) => {
+      const tabX = startTabX + idx * (tabWidth + tabGap);
+      const tabC = scene.add.container(tabX, tabsY);
+      const tBg = scene.add.graphics();
+      const tTxt = scene.add.text(0, 0, cfg.label, {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#ffffff',
+      }).setOrigin(0.5);
+
+      tabC.add([tBg, tTxt]);
+      tabC.setSize(tabWidth, tabHeight);
+      tabC.setInteractive(new Phaser.Geom.Rectangle(0, 0, tabWidth, tabHeight), Phaser.Geom.Rectangle.Contains);
+      if (tabC.input) tabC.input.cursor = 'pointer';
+
+      tabC.on('pointerdown', (p: Phaser.Input.Pointer) => {
+        if (p.button !== 0 && p.button !== undefined) return;
+        if (currentMode === cfg.mode) return;
+        currentMode = cfg.mode;
+        sound.playClick();
+        updateTabStyles();
+        renderTableHeaders();
+        refreshList();
+      });
+
+      container.add(tabC);
+      tabContainers.push({
+        mode: cfg.mode,
+        container: tabC,
+        bg: tBg,
+        text: tTxt,
+        activeColor: cfg.activeColor,
+      });
+    });
 
     const updateTabStyles = () => {
-      taTabBg.clear();
-      erTabBg.clear();
-
-      if (currentMode === 'time_attack') {
-        taTabBg.fillStyle(0xf43f5e, 1);
-        taTabBg.fillRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 14);
-        taTabText.setColor('#ffffff');
-
-        erTabBg.fillStyle(0x0f172a, 0.7);
-        erTabBg.lineStyle(1.5, 0x475569, 1);
-        erTabBg.fillRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 14);
-        erTabBg.strokeRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 14);
-        erTabText.setColor('#94a3b8');
-      } else {
-        erTabBg.fillStyle(0x0284c7, 1);
-        erTabBg.fillRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 14);
-        erTabText.setColor('#ffffff');
-
-        taTabBg.fillStyle(0x0f172a, 0.7);
-        taTabBg.lineStyle(1.5, 0x475569, 1);
-        taTabBg.fillRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 14);
-        taTabBg.strokeRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 14);
-        taTabText.setColor('#94a3b8');
-      }
+      tabContainers.forEach((t) => {
+        t.bg.clear();
+        if (currentMode === t.mode) {
+          t.bg.fillStyle(t.activeColor, 1);
+          t.bg.fillRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 12);
+          t.text.setColor('#ffffff');
+        } else {
+          t.bg.fillStyle(0x0f172a, 0.7);
+          t.bg.lineStyle(1.5, 0x475569, 1);
+          t.bg.fillRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 12);
+          t.bg.strokeRoundedRect(-tabWidth / 2, -tabHeight / 2, tabWidth, tabHeight, 12);
+          t.text.setColor('#94a3b8');
+        }
+      });
     };
     updateTabStyles();
 
-    taTabContainer.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (p.button !== 0 && p.button !== undefined) return;
-      if (currentMode === 'time_attack') return;
-      currentMode = 'time_attack';
-      sound.playClick();
-      updateTabStyles();
-      renderTableHeaders();
-      refreshList();
-    });
-
-    erTabContainer.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (p.button !== 0 && p.button !== undefined) return;
-      if (currentMode === 'endless') return;
-      currentMode = 'endless';
-      sound.playClick();
-      updateTabStyles();
-      renderTableHeaders();
-      refreshList();
-    });
-
-    // 5. Table Header Bar (Dynamic for Time Attack vs Endless Rush)
+    // 5. Table Header Bar (Dynamic for Survival vs Sprint modes)
     const tableHeaderY = tabsY + 36;
     const tableHeaderContainer = scene.add.container(0, 0);
     container.add(tableHeaderContainer);
 
+    const isSurvival = () => currentMode === 'endless' || currentMode === 'one_life';
     const colRankX = cardX - cardWidth / 2 + 32;
-    const getColPlayerX = () => cardX - cardWidth / 2 + (currentMode === 'endless' ? 116 : 126);
+    const getColPlayerX = () => cardX - cardWidth / 2 + (isSurvival() ? 116 : 126);
     const colSurvivalX = cardX + cardWidth / 2 - 145;
     const colScoreX = cardX + cardWidth / 2 - 32;
 
@@ -984,7 +1013,7 @@ export class GameModals {
 
       tableHeaderContainer.add([rankHeader, playerHeader]);
 
-      if (currentMode === 'endless') {
+      if (isSurvival()) {
         const survivalHeader = scene.add.text(colSurvivalX, tableHeaderY, 'SURVIVAL', {
           fontFamily: "'Fredoka', sans-serif",
           fontSize: '13px',
@@ -1033,13 +1062,13 @@ export class GameModals {
     const updateFooter = (rank: number | null, entry: LeaderboardEntry | null) => {
       footerBg.clear();
       const storage = StorageService.getInstance();
-      const localScore = currentMode === 'time_attack' ? storage.getTimeAttackHighScore() : storage.getEndlessHighScore();
-      const localSurvival = currentMode === 'endless' ? storage.getEndlessBestTime() : null;
+      const localScore = storage.getHighScoreForMode(currentMode);
+      const localSurvival = storage.getBestTimeForMode(currentMode);
       const name = leaderboardService.getNickname();
       const boxW = cardWidth - 50;
       const boxH = 46;
 
-      const survivalPart = currentMode === 'endless' && (entry?.survivalTime || localSurvival)
+      const survivalPart = isSurvival() && (entry?.survivalTime || localSurvival)
         ? `  •  ⏱️ ${formatSurvivalTime(entry?.survivalTime || localSurvival)}`
         : '';
 
@@ -1069,7 +1098,13 @@ export class GameModals {
         footerBg.lineStyle(1.5, 0x475569, 1);
         footerBg.fillRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
         footerBg.strokeRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
-        footerText.setText(`YOUR BEST: 0 pts  •  Play ${currentMode === 'time_attack' ? 'Time Attack' : 'Endless Rush'} to join!`);
+        const modeNames: Record<GameModeKey, string> = {
+          time_attack: 'Time Attack',
+          endless: 'Endless Rush',
+          color_chaos: 'Color Chaos',
+          one_life: 'One Life',
+        };
+        footerText.setText(`YOUR BEST: 0 pts  •  Play ${modeNames[currentMode]} to join!`);
         footerText.setColor('#94a3b8');
       }
     };
@@ -1363,8 +1398,8 @@ export class GameModals {
           rowsContainer.add(youBadge);
         }
 
-        // Endless Rush: Survival time column
-        if (currentMode === 'endless') {
+        // Survival time column (Endless Rush & One Life)
+        if (isSurvival()) {
           const survText = scene.add.text(colSurvivalX, rowY, formatSurvivalTime(entry.survivalTime), {
             fontFamily: "'Fredoka', sans-serif",
             fontSize: '15px',

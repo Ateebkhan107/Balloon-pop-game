@@ -2,7 +2,8 @@ import Phaser from 'phaser';
 import { StorageService, BACKGROUND_THEMES, BackgroundThemeId } from '../services/StorageService';
 import { SoundService } from '../services/SoundService';
 import { GameModals } from '../ui/GameModals';
-import { LeaderboardService } from '../services/LeaderboardService';
+import { LeaderboardService, GameModeKey } from '../services/LeaderboardService';
+import { ChampionTracker } from '../services/ChampionTracker';
 
 export class MenuScene extends Phaser.Scene {
   private ambientBalloons: Phaser.GameObjects.Sprite[] = [];
@@ -221,10 +222,14 @@ export class MenuScene extends Phaser.Scene {
 
     playerPill.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (pointer.button !== 0 && pointer.button !== undefined) return;
-      SoundService.getInstance().playClick();
-      GameModals.showNicknamePrompt(this, (newName) => {
-        this.updatePlayerPill(newName);
-      });
+      this.openNicknameModal();
+    });
+  }
+
+  public openNicknameModal(): void {
+    SoundService.getInstance().playClick();
+    GameModals.showNicknamePrompt(this, (newName) => {
+      this.updatePlayerPill(newName);
     });
   }
 
@@ -315,11 +320,14 @@ export class MenuScene extends Phaser.Scene {
     });
   }
 
-  private createModeCards(width: number, height: number): void {
+  private createModeCards(width: number, _height: number): void {
     const storage = StorageService.getInstance();
     const timeAttackBest = storage.getTimeAttackHighScore();
     const endlessBest = storage.getEndlessHighScore();
     const endlessTime = storage.getEndlessBestTime();
+    const colorChaosBest = storage.getColorChaosHighScore();
+    const oneLifeBest = storage.getOneLifeHighScore();
+    const oneLifeTime = storage.getOneLifeBestTime();
 
     const formatTime = (secs: number) => {
       const m = Math.floor(secs / 60);
@@ -327,21 +335,23 @@ export class MenuScene extends Phaser.Scene {
       return `${m}:${s < 10 ? '0' : ''}${s}`;
     };
 
-    const cardWidth = Math.min(width * 0.86, 520);
-    const cardHeight = 160;
-    const startY = height * 0.38;
-    const spacing = 185;
+    const cardWidth = 310;
+    const cardHeight = 162;
+    const colLeftX = width / 2 - 165;
+    const colRightX = width / 2 + 165;
+    const row1Y = 355;
+    const row2Y = 535;
 
     // --- 1. TIME ATTACK MODE CARD ---
     const taCard = this.createPlayableModeCard({
-      x: width / 2,
-      y: startY,
+      x: colLeftX,
+      y: row1Y,
       width: cardWidth,
       height: cardHeight,
       title: 'TIME ATTACK',
       tag: '⏱️ 30s COUNTDOWN',
-      description: 'Race the clock! Pop the target color, chain golden balloons, and trigger Fever Mode!',
-      badgeText: `BEST SCORE: ${timeAttackBest.toLocaleString()}`,
+      description: 'Race against 30s! Pop target colors, golden balloons & trigger Fever Mode!',
+      badgeText: `BEST: ${timeAttackBest.toLocaleString()}`,
       primaryColor: 0xf43f5e,
       darkColor: 0xbe123c,
       accentColor: 0xfef08a,
@@ -350,22 +360,80 @@ export class MenuScene extends Phaser.Scene {
 
     // --- 2. ENDLESS RUSH MODE CARD ---
     const erCard = this.createPlayableModeCard({
-      x: width / 2,
-      y: startY + spacing,
+      x: colRightX,
+      y: row1Y,
       width: cardWidth,
       height: cardHeight,
       title: 'ENDLESS RUSH',
-      tag: '❤️ 3 LIVES SURVIVAL',
-      description: 'Survive as long as you can! Wrong colors, bombs, or missed targets cost a life!',
-      badgeText: `BEST: ${endlessBest.toLocaleString()}  •  TIME: ${formatTime(endlessTime)}`,
+      tag: '❤️ 3 LIVES',
+      description: 'Survive as long as you can! Wrong pops, bombs, or missed targets cost a life!',
+      badgeText: `BEST: ${endlessBest.toLocaleString()} • ${formatTime(endlessTime)}`,
       primaryColor: 0x0284c7,
       darkColor: 0x0369a1,
       accentColor: 0x38bdf8,
       onClick: () => this.startGame('endless'),
     });
 
-    this.modeButtons = [taCard, erCard];
+    // --- 3. COLOR CHAOS MODE CARD ---
+    const ccCard = this.createPlayableModeCard({
+      x: colLeftX,
+      y: row2Y,
+      width: cardWidth,
+      height: cardHeight,
+      title: 'COLOR CHAOS',
+      tag: '🌈 SHIFT EVERY 3',
+      description: 'Target color switches every 3 (then 2) correct pops! Quick reactions required!',
+      badgeText: `BEST: ${colorChaosBest.toLocaleString()}`,
+      primaryColor: 0xa855f7,
+      darkColor: 0x7e22ce,
+      accentColor: 0xf0abfc,
+      onClick: () => this.startGame('color_chaos'),
+    });
+
+    // --- 4. ONE LIFE CHALLENGE MODE CARD ---
+    const olCard = this.createPlayableModeCard({
+      x: colRightX,
+      y: row2Y,
+      width: cardWidth,
+      height: cardHeight,
+      title: 'ONE LIFE',
+      tag: '💀 1 MISTAKE OVER',
+      description: 'High stakes survival! One wrong pop, bomb, or missed target ends the game!',
+      badgeText: `BEST: ${oneLifeBest.toLocaleString()} • ${formatTime(oneLifeTime)}`,
+      primaryColor: 0xef4444,
+      darkColor: 0x991b1b,
+      accentColor: 0xfca5a5,
+      onClick: () => this.startGame('one_life'),
+    });
+
+    this.modeButtons = [taCard, erCard, ccCard, olCard];
     this.highlightMode(0);
+
+    // Asynchronously fetch real Firebase leaderboard targets and display nearest opponent
+    const tracker = ChampionTracker.getInstance();
+    const modes: { mode: GameModeKey; card: Phaser.GameObjects.Container; defaultStr: string }[] = [
+      { mode: 'time_attack', card: taCard, defaultStr: `BEST: ${timeAttackBest.toLocaleString()}` },
+      { mode: 'endless', card: erCard, defaultStr: `BEST: ${endlessBest.toLocaleString()} • ${formatTime(endlessTime)}` },
+      { mode: 'color_chaos', card: ccCard, defaultStr: `BEST: ${colorChaosBest.toLocaleString()}` },
+      { mode: 'one_life', card: olCard, defaultStr: `BEST: ${oneLifeBest.toLocaleString()} • ${formatTime(oneLifeTime)}` },
+    ];
+
+    modes.forEach(({ mode, card, defaultStr }) => {
+      tracker
+        .getTargetForMode(mode)
+        .then((target) => {
+          if (!this.scene.isActive()) return;
+          const badge = (card as unknown as { badgeText?: Phaser.GameObjects.Text }).badgeText;
+          if (badge) {
+            if (target.isCurrentLeader) {
+              badge.setText(`👑 DEFEND CROWN! (${defaultStr})`);
+            } else if (target.hasOpponent) {
+              badge.setText(`🎯 BEAT: ${target.opponentNickname} (${target.opponentScore.toLocaleString()})`);
+            }
+          }
+        })
+        .catch(() => {});
+    });
   }
 
   private createPlayableModeCard(config: {
@@ -387,59 +455,64 @@ export class MenuScene extends Phaser.Scene {
     // 3D Shadow Base
     const base = this.add.graphics();
     base.fillStyle(config.darkColor, 1);
-    base.fillRoundedRect(-config.width / 2, -config.height / 2 + 6, config.width, config.height, 20);
+    base.fillRoundedRect(-config.width / 2, -config.height / 2 + 5, config.width, config.height, 16);
 
     // Face Card
     const face = this.add.graphics();
     face.fillStyle(0x1e1b4b, 0.96);
-    face.lineStyle(3, config.primaryColor, 1);
-    face.fillRoundedRect(-config.width / 2, -config.height / 2, config.width, config.height, 20);
-    face.strokeRoundedRect(-config.width / 2, -config.height / 2, config.width, config.height, 20);
+    face.lineStyle(2.5, config.primaryColor, 1);
+    face.fillRoundedRect(-config.width / 2, -config.height / 2, config.width, config.height, 16);
+    face.strokeRoundedRect(-config.width / 2, -config.height / 2, config.width, config.height, 16);
 
-    // Title
-    const title = this.add.text(-config.width / 2 + 25, -config.height / 2 + 20, config.title, {
+    // Title (left-aligned)
+    const title = this.add.text(-config.width / 2 + 16, -config.height / 2 + 14, config.title, {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '28px',
+      fontSize: '20px',
       fontStyle: 'bold',
       color: '#ffffff',
     });
 
-    // Tag badge
+    // Tag badge (right-aligned in card header)
+    const tagW = Math.min(136, config.width * 0.44);
     const tagBg = this.add.graphics();
     tagBg.fillStyle(config.primaryColor, 1);
-    tagBg.fillRoundedRect(config.width / 2 - 185, -config.height / 2 + 18, 160, 28, 14);
+    tagBg.fillRoundedRect(config.width / 2 - tagW - 12, -config.height / 2 + 12, tagW, 22, 11);
 
-    const tagText = this.add.text(config.width / 2 - 105, -config.height / 2 + 32, config.tag, {
+    const tagText = this.add.text(config.width / 2 - tagW / 2 - 12, -config.height / 2 + 23, config.tag, {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '13px',
+      fontSize: '10px',
       fontStyle: 'bold',
       color: '#ffffff',
     }).setOrigin(0.5);
 
     // Description
-    const desc = this.add.text(-config.width / 2 + 25, -config.height / 2 + 62, config.description, {
+    const desc = this.add.text(-config.width / 2 + 16, -config.height / 2 + 42, config.description, {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '14px',
+      fontSize: '12px',
       color: '#cbd5e1',
-      wordWrap: { width: config.width - 50 },
+      lineSpacing: 1.5,
+      wordWrap: { width: config.width - 32 },
     });
 
     // Record / Badge pill
+    const badgeW = config.width - 28;
     const badgeBg = this.add.graphics();
-    badgeBg.fillStyle(0x312e81, 0.8);
-    badgeBg.fillRoundedRect(-config.width / 2 + 20, config.height / 2 - 42, config.width - 40, 30, 8);
+    badgeBg.fillStyle(0x312e81, 0.85);
+    badgeBg.fillRoundedRect(-config.width / 2 + 14, config.height / 2 - 38, badgeW, 28, 8);
 
-    const badge = this.add.text(-config.width / 2 + 35, config.height / 2 - 27, config.badgeText, {
+    const badge = this.add.text(-config.width / 2 + 22, config.height / 2 - 24, config.badgeText, {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '14px',
+      fontSize: '11px',
       fontStyle: 'bold',
       color: '#fef08a',
     }).setOrigin(0, 0.5);
 
+    (container as unknown as { badgeText?: Phaser.GameObjects.Text }).badgeText = badge;
+
     // Play action indicator arrow
-    const playIndicator = this.add.text(config.width / 2 - 40, config.height / 2 - 27, 'PLAY ▶', {
+    const playIndicator = this.add.text(config.width / 2 - 30, config.height / 2 - 24, 'PLAY ▶', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '14px',
+      fontSize: '11px',
       fontStyle: 'bold',
       color: '#4ade80',
     }).setOrigin(0.5);
@@ -492,8 +565,8 @@ export class MenuScene extends Phaser.Scene {
 
   private createLeaderboardButton(width: number, _height: number): void {
     const btnWidth = Math.min(width * 0.76, 380);
-    const btnHeight = 54;
-    const btnY = 765;
+    const btnHeight = 52;
+    const btnY = 695;
 
     const container = this.add.container(width / 2, btnY).setDepth(10);
 
@@ -555,14 +628,14 @@ export class MenuScene extends Phaser.Scene {
     this.add.existing(container);
   }
 
-  private createSecondaryButtons(width: number, height: number): void {
-    const btnY = height * 0.86;
-    const btnWidth = 180;
-    const btnHeight = 50;
+  private createSecondaryButtons(width: number, _height: number): void {
+    const btnY = 765;
+    const btnWidth = 170;
+    const btnHeight = 46;
 
     // How to Play button
     const howBtn = this.createPillButton(
-      width / 2 - 105,
+      width / 2 - 95,
       btnY,
       btnWidth,
       btnHeight,
@@ -576,7 +649,7 @@ export class MenuScene extends Phaser.Scene {
 
     // Settings button
     const setBtn = this.createPillButton(
-      width / 2 + 105,
+      width / 2 + 95,
       btnY,
       btnWidth,
       btnHeight,
@@ -614,7 +687,7 @@ export class MenuScene extends Phaser.Scene {
 
     const txt = this.add.text(0, 0, label, {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '17px',
+      fontSize: '15px',
       fontStyle: 'bold',
       color: '#ffffff',
     }).setOrigin(0.5);
@@ -650,9 +723,13 @@ export class MenuScene extends Phaser.Scene {
       if (event.code === 'Enter' || event.code === 'Space') {
         const btn = this.modeButtons[this.selectedButtonIndex];
         if (btn) btn.emit('pointerdown', { button: 0 });
-      } else if (event.code === 'ArrowDown' || event.code === 'ArrowUp') {
+      } else if (event.code === 'ArrowDown' || event.code === 'ArrowRight') {
         SoundService.getInstance().playClick();
         this.selectedButtonIndex = (this.selectedButtonIndex + 1) % this.modeButtons.length;
+        this.highlightMode(this.selectedButtonIndex);
+      } else if (event.code === 'ArrowUp' || event.code === 'ArrowLeft') {
+        SoundService.getInstance().playClick();
+        this.selectedButtonIndex = (this.selectedButtonIndex - 1 + this.modeButtons.length) % this.modeButtons.length;
         this.highlightMode(this.selectedButtonIndex);
       } else if (event.key === 'h' || event.key === 'H') {
         GameModals.showHowToPlay(this);
@@ -668,13 +745,18 @@ export class MenuScene extends Phaser.Scene {
     });
   }
 
-  private startGame(mode: 'time_attack' | 'endless'): void {
+  public startGame(mode: GameModeKey): void {
     if (this.isStartingGame) return;
     this.isStartingGame = true;
     SoundService.getInstance().playClick();
-    this.cameras.main.fadeOut(200, 15, 23, 42);
-    this.cameras.main.once('camerafadeoutcomplete', () => {
+    let transitioned = false;
+    const doTransition = () => {
+      if (transitioned) return;
+      transitioned = true;
       this.scene.start('GameScene', { mode });
-    });
+    };
+    this.cameras.main.fadeOut(200, 15, 23, 42);
+    this.cameras.main.once('camerafadeoutcomplete', doTransition);
+    this.time.delayedCall(250, doTransition);
   }
 }

@@ -24,7 +24,7 @@ export interface LeaderboardEntry {
   isCurrentUser?: boolean;
 }
 
-export type GameModeKey = 'time_attack' | 'endless';
+export type GameModeKey = 'time_attack' | 'endless' | 'color_chaos' | 'one_life';
 
 export interface LeaderboardFetchResult {
   success: boolean;
@@ -137,13 +137,19 @@ export class LeaderboardService {
   }
 
   /**
-   * Waits for initial Firebase Auth check to complete.
+   * Waits for initial Firebase Auth check to complete with an offline/slow-network fallback timeout.
    */
-  public async waitForAuthReady(): Promise<User | null> {
-    if (this.initPromise) {
-      await this.initPromise;
-    }
-    return this.authReadyPromise;
+  public async waitForAuthReady(timeoutMs: number = 2500): Promise<User | null> {
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs));
+    const authPromise = async () => {
+      if (this.initPromise) {
+        try {
+          await this.initPromise;
+        } catch (_) {}
+      }
+      return this.authReadyPromise;
+    };
+    return Promise.race([authPromise(), timeoutPromise]);
   }
 
   /**
@@ -245,18 +251,14 @@ export class LeaderboardService {
           updatedAt: Date.now(),
         });
 
-        // 2. Update existing Time Attack entry if present
-        const taRef = ref(this.db, `leaderboards/time_attack/${uid}`);
-        const taSnap = await get(taRef);
-        if (taSnap.exists()) {
-          await update(taRef, { nickname: sanitized, updatedAt: Date.now() });
-        }
-
-        // 3. Update existing Endless entry if present
-        const erRef = ref(this.db, `leaderboards/endless/${uid}`);
-        const erSnap = await get(erRef);
-        if (erSnap.exists()) {
-          await update(erRef, { nickname: sanitized, updatedAt: Date.now() });
+        // 2. Update existing entries in all 4 mode leaderboards if present
+        const modes: GameModeKey[] = ['time_attack', 'endless', 'color_chaos', 'one_life'];
+        for (const m of modes) {
+          const entryRef = ref(this.db, `leaderboards/${m}/${uid}`);
+          const snap = await get(entryRef);
+          if (snap.exists()) {
+            await update(entryRef, { nickname: sanitized, updatedAt: Date.now() });
+          }
         }
       } catch (err) {
         console.warn('[LeaderboardService] Could not update nickname in Firebase:', err);
@@ -283,20 +285,20 @@ export class LeaderboardService {
       console.warn('[LeaderboardService] Score exceeds sanity limit, ignoring submission:', score);
       return { success: false, isNewBest: false, error: 'Score exceeds sanity limit' };
     }
-    if (mode !== 'time_attack' && mode !== 'endless') {
+    if (
+      mode !== 'time_attack' &&
+      mode !== 'endless' &&
+      mode !== 'color_chaos' &&
+      mode !== 'one_life'
+    ) {
       return { success: false, isNewBest: false, error: 'Invalid game mode' };
     }
 
     // Always ensure local storage record is saved
     const storage = StorageService.getInstance();
-    let isLocalBest = false;
-    if (mode === 'time_attack') {
-      isLocalBest = storage.saveTimeAttackHighScore(score);
-    } else {
-      isLocalBest = storage.saveEndlessHighScore(score);
-      if (survivalTime && survivalTime > 0) {
-        storage.saveEndlessBestTime(survivalTime);
-      }
+    const isLocalBest = storage.saveHighScoreForMode(mode, score);
+    if ((mode === 'endless' || mode === 'one_life') && survivalTime && survivalTime > 0) {
+      storage.saveBestTimeForMode(mode, survivalTime);
     }
 
     if (!this.isConfigured || !this.db) {
@@ -332,7 +334,7 @@ export class LeaderboardService {
             uid,
             nickname,
             score: Math.floor(score),
-            survivalTime: mode === 'endless' ? Math.floor(survivalTime || 0) : null,
+            survivalTime: (mode === 'endless' || mode === 'one_life') ? Math.floor(survivalTime || 0) : null,
             updatedAt: Date.now(),
           };
         }
@@ -368,8 +370,8 @@ export class LeaderboardService {
     }
 
     const storage = StorageService.getInstance();
-    const localHighScore = mode === 'time_attack' ? storage.getTimeAttackHighScore() : storage.getEndlessHighScore();
-    const localBestTime = mode === 'endless' ? storage.getEndlessBestTime() : null;
+    const localHighScore = storage.getHighScoreForMode(mode);
+    const localBestTime = storage.getBestTimeForMode(mode);
     const nickname = this.getNickname();
     const cachedUid = this.getUid() || 'local_player';
 

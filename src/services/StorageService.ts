@@ -8,6 +8,9 @@ export interface GameRecords {
   timeAttackHighScore: number;
   endlessHighScore: number;
   endlessBestTime: number; // in seconds
+  colorChaosHighScore: number;
+  oneLifeHighScore: number;
+  oneLifeBestTime: number; // in seconds
 }
 
 export type BackgroundThemeId = 'dreamy_sky' | 'neon_night' | 'candy_world' | 'space_rush';
@@ -65,6 +68,9 @@ const STORAGE_KEYS = {
   HIGH_SCORE_TIME_ATTACK: 'pop_rush_high_score', // preserved for backward compatibility
   HIGH_SCORE_ENDLESS: 'pop_rush_endless_high_score',
   BEST_TIME_ENDLESS: 'pop_rush_endless_best_time',
+  HIGH_SCORE_COLOR_CHAOS: 'pop_rush_color_chaos_high_score',
+  HIGH_SCORE_ONE_LIFE: 'pop_rush_one_life_high_score',
+  BEST_TIME_ONE_LIFE: 'pop_rush_one_life_best_time',
   SETTINGS: 'pop_rush_settings',
   PLAYER_NICKNAME: 'pop_rush_player_nickname',
   NICKNAME_PROMPTED: 'pop_rush_nickname_prompted',
@@ -155,6 +161,121 @@ export class StorageService {
         return false;
       }
     }
+    return false;
+  }
+
+  // --- COLOR CHAOS RECORDS ---
+
+  public getColorChaosHighScore(): number {
+    try {
+      const val = localStorage.getItem(STORAGE_KEYS.HIGH_SCORE_COLOR_CHAOS);
+      return val ? parseInt(val, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  public saveColorChaosHighScore(score: number): boolean {
+    const current = this.getColorChaosHighScore();
+    if (score > current) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.HIGH_SCORE_COLOR_CHAOS, score.toString());
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  // --- ONE LIFE RECORDS ---
+
+  public getOneLifeHighScore(): number {
+    try {
+      const val = localStorage.getItem(STORAGE_KEYS.HIGH_SCORE_ONE_LIFE);
+      return val ? parseInt(val, 10) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  public saveOneLifeHighScore(score: number): boolean {
+    const current = this.getOneLifeHighScore();
+    if (score > current) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.HIGH_SCORE_ONE_LIFE, score.toString());
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  public getOneLifeBestTime(): number {
+    try {
+      const val = localStorage.getItem(STORAGE_KEYS.BEST_TIME_ONE_LIFE);
+      return val ? Math.floor(parseFloat(val)) || 0 : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  public saveOneLifeBestTime(seconds: number): boolean {
+    const current = this.getOneLifeBestTime();
+    const rounded = Math.floor(seconds);
+    if (rounded > current) {
+      try {
+        localStorage.setItem(STORAGE_KEYS.BEST_TIME_ONE_LIFE, rounded.toString());
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  // --- MODE-GENERIC HELPERS ---
+
+  public getHighScoreForMode(mode: string): number {
+    switch (mode) {
+      case 'time_attack':
+        return this.getTimeAttackHighScore();
+      case 'endless':
+        return this.getEndlessHighScore();
+      case 'color_chaos':
+        return this.getColorChaosHighScore();
+      case 'one_life':
+        return this.getOneLifeHighScore();
+      default:
+        return 0;
+    }
+  }
+
+  public saveHighScoreForMode(mode: string, score: number): boolean {
+    switch (mode) {
+      case 'time_attack':
+        return this.saveTimeAttackHighScore(score);
+      case 'endless':
+        return this.saveEndlessHighScore(score);
+      case 'color_chaos':
+        return this.saveColorChaosHighScore(score);
+      case 'one_life':
+        return this.saveOneLifeHighScore(score);
+      default:
+        return false;
+    }
+  }
+
+  public getBestTimeForMode(mode: string): number | null {
+    if (mode === 'endless') return this.getEndlessBestTime();
+    if (mode === 'one_life') return this.getOneLifeBestTime();
+    return null;
+  }
+
+  public saveBestTimeForMode(mode: string, seconds: number): boolean {
+    if (mode === 'endless') return this.saveEndlessBestTime(seconds);
+    if (mode === 'one_life') return this.saveOneLifeBestTime(seconds);
     return false;
   }
 

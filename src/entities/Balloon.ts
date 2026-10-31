@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 
 export type BalloonType = 'normal' | 'golden' | 'hazard' | 'rainbow' | 'freeze';
+export type TrickType = 'none' | 'zigzag' | 'speedster' | 'dodger';
 
 export interface BalloonConfig {
   type: BalloonType;
@@ -13,6 +14,7 @@ export interface BalloonConfig {
   scoreValue: number;
   scale?: number;
   isSmall?: boolean;
+  trickType?: TrickType;
   onEscape?: (balloon: Balloon) => void;
 }
 
@@ -24,6 +26,7 @@ export class Balloon extends Phaser.GameObjects.Sprite {
   public isFrozen: boolean = false;
   public targetScale: number = 1.0;
   public isSmall: boolean = false;
+  public trickType: TrickType = 'none';
 
   private baseSpeed: number;
   private speed: number;
@@ -32,6 +35,9 @@ export class Balloon extends Phaser.GameObjects.Sprite {
   private startX: number;
   private timeOffset: number;
   private floatTime: number = 0;
+  private hasDodged: boolean = false;
+  private dodgeOffset: number = 0;
+  private trickBadge?: Phaser.GameObjects.Text;
   private onEscapeCallback?: (balloon: Balloon) => void;
 
   constructor(scene: Phaser.Scene, config: BalloonConfig) {
@@ -55,6 +61,7 @@ export class Balloon extends Phaser.GameObjects.Sprite {
     this.scoreValue = config.scoreValue;
     this.targetScale = config.scale !== undefined ? config.scale : 1.0;
     this.isSmall = config.isSmall || this.targetScale < 0.95;
+    this.trickType = config.trickType || 'none';
     this.baseSpeed = config.speed;
     this.speed = config.speed;
     this.swayAmplitude = config.swayAmplitude;
@@ -74,6 +81,35 @@ export class Balloon extends Phaser.GameObjects.Sprite {
     );
     if (this.input) {
       this.input.cursor = 'pointer';
+    }
+
+    // Subtle visual indicator for trick balloons
+    if (this.trickType !== 'none') {
+      const badgeIcons: Record<TrickType, string> = {
+        zigzag: '⚡',
+        speedster: '💨',
+        dodger: '🌀',
+        none: '',
+      };
+      this.trickBadge = scene.add.text(
+        this.x,
+        this.y - 25 * this.targetScale,
+        badgeIcons[this.trickType],
+        {
+          fontFamily: "'Fredoka', sans-serif",
+          fontSize: '18px',
+        }
+      ).setOrigin(0.5).setDepth(this.depth + 1);
+      this.trickBadge.setScale(0);
+      this.trickBadge.setAlpha(0.85);
+
+      scene.tweens.add({
+        targets: this.trickBadge,
+        scaleX: this.targetScale,
+        scaleY: this.targetScale,
+        duration: 320,
+        ease: 'Back.easeOut',
+      });
     }
 
     // Spawn pop-in animation scaled to target scale
@@ -102,16 +138,57 @@ export class Balloon extends Phaser.GameObjects.Sprite {
 
     const dt = delta / 1000;
     this.floatTime += dt;
+    const sceneWidth = this.scene?.cameras?.main?.width || 720;
+    const minX = 48;
+    const maxX = sceneWidth - 48;
 
-    // Upward float
-    this.y -= this.speed * dt;
+    if (this.trickType === 'zigzag') {
+      // 1. ZIGZAG: smooth sinusoidal horizontal oscillation
+      this.y -= this.speed * dt;
+      const zigzagOffset = Math.sin(this.floatTime * 3.4 + this.timeOffset) * Math.min(65, this.swayAmplitude * 2.2);
+      this.x = Phaser.Math.Clamp(this.startX + zigzagOffset, minX, maxX);
+      this.rotation = Math.sin(this.floatTime * 3.4 + this.timeOffset) * 0.12;
+    } else if (this.trickType === 'speedster') {
+      // 2. SPEEDSTER: starts at normal speed and accelerates upward (capped for mobile accessibility)
+      this.speed = Math.min(this.baseSpeed * 1.55, this.baseSpeed + this.floatTime * 48);
+      this.y -= this.speed * dt;
+      const sway = Math.sin(this.floatTime * this.swayFrequency + this.timeOffset) * this.swayAmplitude;
+      this.x = Phaser.Math.Clamp(this.startX + sway, minX, maxX);
+      this.rotation = Math.sin(this.floatTime * this.swayFrequency * 0.8) * 0.08;
+    } else if (this.trickType === 'dodger') {
+      // 3. DODGER: sidesteps smoothly upon reaching upper playfield
+      if (this.y <= 620 && !this.hasDodged) {
+        this.hasDodged = true;
+        const shiftDir = this.startX > sceneWidth / 2 ? -1 : 1;
+        this.dodgeOffset = shiftDir * 80;
+      }
 
-    // Horizontal swaying
-    const sway = Math.sin(this.floatTime * this.swayFrequency + this.timeOffset) * this.swayAmplitude;
-    this.x = this.startX + sway;
+      this.y -= this.speed * dt;
 
-    // Gentle tilt
-    this.rotation = Math.sin(this.floatTime * this.swayFrequency * 0.8) * 0.08;
+      if (this.hasDodged) {
+        const targetX = Phaser.Math.Clamp(this.startX + this.dodgeOffset, minX, maxX);
+        this.x += (targetX - this.x) * Math.min(1.0, dt * 5.0);
+        this.rotation = Math.sin(this.floatTime * this.swayFrequency * 0.8) * 0.10;
+      } else {
+        const sway = Math.sin(this.floatTime * this.swayFrequency + this.timeOffset) * this.swayAmplitude;
+        this.x = Phaser.Math.Clamp(this.startX + sway, minX, maxX);
+        this.rotation = Math.sin(this.floatTime * this.swayFrequency * 0.8) * 0.08;
+      }
+    } else {
+      // Normal balloon float
+      this.y -= this.speed * dt;
+      const sway = Math.sin(this.floatTime * this.swayFrequency + this.timeOffset) * this.swayAmplitude;
+      this.x = Phaser.Math.Clamp(this.startX + sway, minX, maxX);
+      this.rotation = Math.sin(this.floatTime * this.swayFrequency * 0.8) * 0.08;
+    }
+
+    // Keep badge aligned with balloon
+    if (this.trickBadge && this.trickBadge.active) {
+      this.trickBadge.setPosition(this.x, this.y - 25 * this.targetScale);
+      this.trickBadge.setRotation(this.rotation);
+      this.trickBadge.setAlpha(this.alpha * 0.85);
+      this.trickBadge.setScale(this.scaleX);
+    }
 
     // Play boundary ceiling: despawn cleanly before overlapping HUD (y = 135)
     if (this.y < 135) {
@@ -126,6 +203,11 @@ export class Balloon extends Phaser.GameObjects.Sprite {
     if (this.isPopped) return;
     this.isPopped = true;
     this.disableInteractive();
+
+    if (this.trickBadge) {
+      this.trickBadge.destroy();
+      this.trickBadge = undefined;
+    }
 
     if (!this.scene) {
       if (onComplete) onComplete();
@@ -167,6 +249,11 @@ export class Balloon extends Phaser.GameObjects.Sprite {
     this.isPopped = true;
     this.disableInteractive();
 
+    if (this.trickBadge) {
+      this.trickBadge.destroy();
+      this.trickBadge = undefined;
+    }
+
     if (this.onEscapeCallback) {
       this.onEscapeCallback(this);
     }
@@ -188,5 +275,13 @@ export class Balloon extends Phaser.GameObjects.Sprite {
         this.destroy();
       },
     });
+  }
+
+  public destroy(fromScene?: boolean): void {
+    if (this.trickBadge) {
+      this.trickBadge.destroy();
+      this.trickBadge = undefined;
+    }
+    super.destroy(fromScene);
   }
 }

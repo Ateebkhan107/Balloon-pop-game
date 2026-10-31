@@ -72,6 +72,8 @@ export const BALLOON_COLORS: Record<string, BalloonTheme> = {
 
 export class AssetGenerator {
   public static generateAllTextures(scene: Phaser.Scene): void {
+    if (scene.textures.exists('balloon_red')) return;
+
     // 1. Generate normal colored balloons
     Object.entries(BALLOON_COLORS).forEach(([colorKey, theme]) => {
       this.generateBalloonTexture(scene, `balloon_${colorKey}`, theme);

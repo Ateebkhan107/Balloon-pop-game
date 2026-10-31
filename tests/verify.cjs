@@ -190,7 +190,7 @@ test('Color Rush: matching color accepts, wrong color rejects, 600ms grace windo
 });
 
 // 7. Fever Mode Activation & Multiplier Verification
-test('Fever Mode: charges to 100%, doubles points, accepts all colors, and prevents recharge while active', () => {
+test('Fever Mode: charges to 100%, doubles points on target color, and prevents recharge while active', () => {
   let charge = 0;
   let isFeverActive = false;
   let feverTimer = 0;

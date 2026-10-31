@@ -43,6 +43,8 @@ class MockFirebaseDatabase {
       leaderboards: {
         time_attack: {},
         endless: {},
+        color_chaos: {},
+        one_life: {},
       },
     };
     this.rules = rulesJson.rules;
@@ -462,6 +464,64 @@ test('Mode Isolation: Time Attack and Endless Rush are ranked separately', () =>
   assert.strictEqual(erScores[1].uid, 'uid_1');
   assert.strictEqual(erScores[1].score, 30000);
   assert.strictEqual(erScores[1].rank, 2);
+});
+
+test('4-Mode Isolation: All 4 modes maintain independent rankings and survival stats', () => {
+  const db = new MockFirebaseDatabase(rawRules);
+  const p1 = { uid: 'uid_player_alpha', nickname: 'Alpha' };
+  const p2 = { uid: 'uid_player_beta', nickname: 'Beta' };
+
+  // Write across all 4 modes
+  // Time Attack
+  db.writeRecord(p1, `leaderboards/time_attack/${p1.uid}`, {
+    uid: p1.uid,
+    nickname: p1.nickname,
+    score: 80000,
+    updatedAt: 1000,
+  });
+
+  // Endless Rush
+  db.writeRecord(p1, `leaderboards/endless/${p1.uid}`, {
+    uid: p1.uid,
+    nickname: p1.nickname,
+    score: 60000,
+    survivalTime: 95,
+    updatedAt: 1000,
+  });
+
+  // Color Chaos
+  db.writeRecord(p2, `leaderboards/color_chaos/${p2.uid}`, {
+    uid: p2.uid,
+    nickname: p2.nickname,
+    score: 95000,
+    updatedAt: 1000,
+  });
+
+  // One Life Challenge
+  db.writeRecord(p2, `leaderboards/one_life/${p2.uid}`, {
+    uid: p2.uid,
+    nickname: p2.nickname,
+    score: 55000,
+    survivalTime: 42,
+    updatedAt: 1000,
+  });
+
+  const ta = db.fetchTopScores('time_attack');
+  const er = db.fetchTopScores('endless');
+  const cc = db.fetchTopScores('color_chaos');
+  const ol = db.fetchTopScores('one_life');
+
+  assert.strictEqual(ta.length, 1);
+  assert.strictEqual(ta[0].score, 80000);
+
+  assert.strictEqual(er.length, 1);
+  assert.strictEqual(er[0].survivalTime, 95);
+
+  assert.strictEqual(cc.length, 1);
+  assert.strictEqual(cc[0].score, 95000);
+
+  assert.strictEqual(ol.length, 1);
+  assert.strictEqual(ol[0].survivalTime, 42);
 });
 
 test('Duplicate Prevention: Restarting or replaying does NOT duplicate scores', () => {

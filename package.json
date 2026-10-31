@@ -5,7 +5,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/verify.cjs && node tests/viewport-scaling.test.cjs && node tests/leaderboard.test.cjs && node tests/color-pop-themes.test.cjs && node tests/progressive-difficulty.test.cjs && node tests/target-color-announcement.test.cjs",
+    "test": "node tests/verify.cjs && node tests/viewport-scaling.test.cjs && node tests/leaderboard.test.cjs && node tests/color-pop-themes.test.cjs && node tests/progressive-difficulty.test.cjs && node tests/target-color-announcement.test.cjs && node tests/beat-the-champion.test.cjs && node tests/fever-mode.test.cjs && node tests/trick-balloons.test.cjs && node tests/color-chaos.test.cjs && node tests/one-life.test.cjs",
+    "test:e2e": "node --experimental-websocket tests/e2e-browser.cjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview"

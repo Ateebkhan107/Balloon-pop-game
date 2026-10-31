@@ -131,23 +131,25 @@ test('Duplicate Tap Prevention: Once popped, subsequent taps in same or later fr
   assert.strictEqual(score, 100, 'Score must only be awarded once');
 });
 
-test('Fever Mode: Allows all colors to pop and awards 2x bonus', () => {
+test('Fever Mode: Awards 2x bonus on target color; wrong colors do NOT pop or score in Fever', () => {
   let score = 0;
   const feverActive = true;
   const activeColor = 'green';
 
   function tapInFever(color) {
-    const isMatch = color === activeColor || feverActive;
+    // Crucial rule: Only target color pops, even during Fever!
+    const isMatch = color === activeColor;
     if (isMatch) {
-      score += 100 * 2; // 2x fever multiplier
+      score += 100 * (feverActive ? 2 : 1);
       return true;
     }
     return false;
   }
 
-  assert.strictEqual(tapInFever('yellow'), true);
-  assert.strictEqual(tapInFever('purple'), true);
-  assert.strictEqual(score, 400);
+  assert.strictEqual(tapInFever('yellow'), false, 'Wrong color must not pop in Fever');
+  assert.strictEqual(tapInFever('purple'), false, 'Wrong color must not pop in Fever');
+  assert.strictEqual(tapInFever('green'), true, 'Target color pops in Fever');
+  assert.strictEqual(score, 200, 'Target color earns 2x bonus points');
 });
 
 test('Color Switch Grace Period: Accepts previous color within 600ms grace window', () => {

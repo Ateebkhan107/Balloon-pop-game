@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { Balloon, BalloonType } from '../entities/Balloon';
+import { Balloon, BalloonType, TrickType } from '../entities/Balloon';
 import { SoundService } from '../services/SoundService';
 import { StorageService, BACKGROUND_THEMES } from '../services/StorageService';
 import { FloatingText } from '../ui/FloatingText';
@@ -8,8 +8,9 @@ import { ColorRushManager } from '../services/ColorRushManager';
 import { FeverManager } from '../services/FeverManager';
 import { BalloonTheme, BALLOON_COLORS } from '../services/AssetGenerator';
 import { LeaderboardService } from '../services/LeaderboardService';
+import { ChampionTracker, ChampionTarget, PostGameRankSummary } from '../services/ChampionTracker';
 
-export type GameModeType = 'time_attack' | 'endless';
+export type GameModeType = 'time_attack' | 'endless' | 'color_chaos' | 'one_life';
 
 export interface GameStats {
   mode: GameModeType;
@@ -25,6 +26,8 @@ export interface GameStats {
   feverActivations: number;
   isNewBestScore: boolean;
   isNewBestTime: boolean;
+  championTarget?: ChampionTarget;
+  postGameSummary?: PostGameRankSummary;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -34,14 +37,16 @@ export class GameScene extends Phaser.Scene {
   // Game State
   private score: number = 0;
   private displayedScore: number = 0;
-  private timeLeft: number = 30; // Time Attack countdown
-  private survivalTime: number = 0; // Endless
+  private timeLeft: number = 30; // Time Attack & Color Chaos countdown
+  private survivalTime: number = 0; // Endless & One Life
   private elapsedGameplayTime: number = 0; // Elapsed active gameplay time for progressive difficulty
   private currentDifficultyTier: number = 1; // Current progression tier
-  private lives: number = 3; // Endless
-  private isPlaying: boolean = false;
+  private lives: number = 3; // Endless (3) & One Life (1)
+  public isPlaying: boolean = false;
   private isPaused: boolean = false;
   private isEnding: boolean = false;
+  private colorChaosTargetPopsCount: number = 0; // Color Chaos pop threshold counter
+  private dangerOverlay?: Phaser.GameObjects.Graphics; // One Life subtle danger vignette
 
   // Combo & Fever
   private combo: number = 1;
@@ -50,6 +55,14 @@ export class GameScene extends Phaser.Scene {
   private readonly COMBO_WINDOW: number = 1.4;
   private feverManager: FeverManager = new FeverManager();
   private feverActivations: number = 0;
+  private feverGlowOverlay!: Phaser.GameObjects.Graphics;
+
+  // Beat the Champion
+  private championTarget?: ChampionTarget;
+  private championBeatenFired: boolean = false;
+  private championBadgeContainer!: Phaser.GameObjects.Container;
+  private championBadgeBg!: Phaser.GameObjects.Graphics;
+  private championBadgeText!: Phaser.GameObjects.Text;
 
   // Color Rush System
   private colorRushManager!: ColorRushManager;
@@ -58,7 +71,9 @@ export class GameScene extends Phaser.Scene {
   private targetColorDot!: Phaser.GameObjects.Graphics;
   private targetColorText!: Phaser.GameObjects.Text;
   private targetColorProgressRing!: Phaser.GameObjects.Graphics;
-  private isAnnouncementActive: boolean = false;
+  public isAnnouncementActive: boolean = false;
+  private currentAnnouncement?: Phaser.GameObjects.Container;
+  private activeAnnouncementParticles: Phaser.GameObjects.Sprite[] = [];
 
   // Freeze Mechanic
   private isFreezeActive: boolean = false;
@@ -100,21 +115,35 @@ export class GameScene extends Phaser.Scene {
     this.mode = data?.mode || 'time_attack';
   }
 
+  public getMode(): GameModeType { return this.mode; }
+  public getScore(): number { return this.score; }
+  public getLives(): number { return this.lives; }
+  public getTimeLeft(): number { return this.timeLeft; }
+  public setTimeLeft(t: number): void { this.timeLeft = t; }
+  public getSurvivalTime(): number { return this.survivalTime; }
+  public getBalloons(): Balloon[] { return this.balloons; }
+  public getIsPaused(): boolean { return this.isPaused; }
+  public getTargetColor(): string { return this.colorRushManager ? this.colorRushManager.getActiveColorKey() : 'red'; }
+
   public create(): void {
     const { width, height } = this.cameras.main;
 
     // Reset game state
     this.score = 0;
     this.displayedScore = 0;
-    this.timeLeft = 30;
+    this.timeLeft = (this.mode === 'time_attack' || this.mode === 'color_chaos') ? 30 : 0;
     this.survivalTime = 0;
     this.elapsedGameplayTime = 0;
     this.currentDifficultyTier = 1;
-    this.lives = 3;
+    this.lives = this.mode === 'one_life' ? 1 : 3;
+    this.colorChaosTargetPopsCount = 0;
     this.isPlaying = false;
     this.isPaused = false;
     this.isEnding = false;
     this.isAnnouncementActive = false;
+    this.currentAnnouncement = undefined;
+    this.activeAnnouncementParticles = [];
+    this.championBeatenFired = false;
     this.combo = 1;
     this.maxCombo = 1;
     this.comboTimer = 0;
@@ -131,7 +160,7 @@ export class GameScene extends Phaser.Scene {
     this.heartSprites = [];
 
     // Initialize Managers
-    const switchInterval = this.mode === 'time_attack' ? 7.2 : 7.5;
+    const switchInterval = (this.mode === 'time_attack' || this.mode === 'color_chaos') ? 7.2 : 7.5;
     this.colorRushManager = new ColorRushManager(switchInterval);
     this.feverManager.reset();
 
@@ -141,11 +170,30 @@ export class GameScene extends Phaser.Scene {
     // --- BACKGROUND ---
     this.createBackground(width, height);
 
+    // --- ONE LIFE DANGER OVERLAY ---
+    if (this.mode === 'one_life') {
+      this.dangerOverlay = this.add.graphics().setDepth(18);
+    }
+
+    // --- FEVER GLOW OVERLAY ---
+    this.feverGlowOverlay = this.add.graphics().setDepth(20);
+
     // --- FREEZE VISUAL OVERLAY ---
     this.freezeOverlay = this.add.rectangle(width / 2, height / 2, width, height, 0x38bdf8, 0).setDepth(25);
 
     // --- HUD (TOP BAR & COLOR RUSH INDICATOR) ---
     this.createHUD(width);
+
+    // Fetch and cache Beat the Champion opponent target for this round
+    ChampionTracker.getInstance()
+      .getTargetForMode(this.mode, true)
+      .then((target) => {
+        this.championTarget = target;
+        this.updateChampionBadge();
+      })
+      .catch((err) => {
+        console.warn('[GameScene] Champion target fetch error:', err);
+      });
 
     // --- PAUSE OVERLAY ---
     this.createPauseOverlay(width, height);
@@ -165,6 +213,19 @@ export class GameScene extends Phaser.Scene {
       this.input.removeAllListeners();
       this.balloons.forEach((b) => b.destroy());
       this.balloons = [];
+      if (this.currentAnnouncement) {
+        this.tweens.killTweensOf(this.currentAnnouncement);
+        this.currentAnnouncement.destroy();
+        this.currentAnnouncement = undefined;
+      }
+      this.activeAnnouncementParticles.forEach((p) => {
+        if (p && p.active) {
+          this.tweens.killTweensOf(p);
+          p.destroy();
+        }
+      });
+      this.activeAnnouncementParticles = [];
+      this.isAnnouncementActive = false;
     });
   }
 
@@ -179,7 +240,7 @@ export class GameScene extends Phaser.Scene {
       },
       () => {
         // Warning 1 second before switch: subtle pulse on badge
-        if (!this.isAnnouncementActive && this.targetColorBadge) {
+        if (this.targetColorBadge) {
           this.tweens.add({
             targets: this.targetColorBadge,
             scaleX: 1.12,
@@ -253,14 +314,18 @@ export class GameScene extends Phaser.Scene {
     hudContainer.add([barBg, hudShield]);
 
     // 1. LEFT: MODE TIMER OR LIVES DISPLAY
-    if (this.mode === 'time_attack') {
+    if (this.mode === 'time_attack' || this.mode === 'color_chaos') {
       this.timerRing = this.add.graphics();
       hudContainer.add(this.timerRing);
 
-      const timerLabel = this.add.text(65, 24, 'TIME', {
+      const labelText = this.mode === 'color_chaos' ? 'CHAOS' : 'TIME';
+      const labelColor = this.mode === 'color_chaos' ? '#c084fc' : '#94a3b8';
+      const timeColor = this.mode === 'color_chaos' ? '#e879f9' : '#38bdf8';
+
+      const timerLabel = this.add.text(65, 24, labelText, {
         fontFamily: "'Fredoka', sans-serif",
         fontSize: '13px',
-        color: '#94a3b8',
+        color: labelColor,
         fontStyle: 'bold',
         letterSpacing: 1,
       }).setOrigin(0.5);
@@ -269,10 +334,33 @@ export class GameScene extends Phaser.Scene {
         fontFamily: "'Fredoka', sans-serif",
         fontSize: '32px',
         fontStyle: 'bold',
-        color: '#38bdf8',
+        color: timeColor,
       }).setOrigin(0.5);
 
       hudContainer.add([timerLabel, this.timerText]);
+    } else if (this.mode === 'one_life') {
+      // One Life Challenge: 1 Life & Survival Clock
+      const livesLabel = this.add.text(70, 22, 'ONE LIFE', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '12px',
+        color: '#fb7185',
+        fontStyle: 'bold',
+        letterSpacing: 1,
+      }).setOrigin(0.5);
+
+      // Single life heart
+      const heart = this.add.sprite(70, 48, 'icon_heart_full').setScale(0.95);
+      this.heartSprites.push(heart);
+      hudContainer.add(heart);
+
+      this.timerText = this.add.text(70, 78, '00:00', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '18px',
+        fontStyle: 'bold',
+        color: '#f43f5e',
+      }).setOrigin(0.5);
+
+      hudContainer.add([livesLabel, this.timerText]);
     } else {
       // Endless Rush: Lives & Survival Clock
       const livesLabel = this.add.text(70, 22, 'LIVES', {
@@ -322,6 +410,18 @@ export class GameScene extends Phaser.Scene {
 
     scoreBox.add([scoreLabel, this.scoreText]);
     hudContainer.add(scoreBox);
+
+    // 3b. BEAT THE CHAMPION OPPONENT TRACKER
+    this.championBadgeContainer = this.add.container(width / 2 + 130, 85);
+    this.championBadgeBg = this.add.graphics();
+    this.championBadgeText = this.add.text(0, 0, '🎯 TARGET: SYNCING...', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '11px',
+      fontStyle: 'bold',
+      color: '#94a3b8',
+    }).setOrigin(0.5);
+    this.championBadgeContainer.add([this.championBadgeBg, this.championBadgeText]);
+    hudContainer.add(this.championBadgeContainer);
 
     // 4. RIGHT: ACTION CONTROLS (Sound & Pause)
     const soundService = SoundService.getInstance();
@@ -429,89 +529,287 @@ export class GameScene extends Phaser.Scene {
     this.targetColorProgressRing.fillRoundedRect(-barWidth / 2, badgeHeight / 2 - 5, currentW, 3, 1.5);
   }
 
+  private updateChampionBadge(): void {
+    if (!this.championBadgeBg || !this.championBadgeText) return;
+    this.championBadgeBg.clear();
+
+    const badgeW = 166;
+    const badgeH = 22;
+
+    if (!this.championTarget) {
+      this.championBadgeText.setText('🎯 SYNCING TARGET...');
+      this.championBadgeBg.fillStyle(0x0f172a, 0.85);
+      this.championBadgeBg.fillRoundedRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 11);
+      this.championBadgeBg.lineStyle(1.5, 0x334155, 0.9);
+      this.championBadgeBg.strokeRoundedRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 11);
+      return;
+    }
+
+    const target = this.championTarget;
+
+    if (target.isCurrentLeader) {
+      this.championBadgeBg.fillStyle(0x0f172a, 0.9);
+      this.championBadgeBg.fillRoundedRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 11);
+      this.championBadgeBg.lineStyle(1.5, 0xf59e0b, 1);
+      this.championBadgeBg.strokeRoundedRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 11);
+      this.championBadgeText.setText('👑 DEFEND YOUR CROWN!');
+      this.championBadgeText.setColor('#fef08a');
+      return;
+    }
+
+    if (target.hasOpponent) {
+      const oppName =
+        target.opponentNickname.length > 7
+          ? `${target.opponentNickname.substring(0, 6)}…`
+          : target.opponentNickname;
+
+      if (this.score > target.opponentScore) {
+        const lead = this.score - target.opponentScore;
+        this.championBadgeBg.fillStyle(0x064e3b, 0.9);
+        this.championBadgeBg.fillRoundedRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 11);
+        this.championBadgeBg.lineStyle(1.5, 0x10b981, 1);
+        this.championBadgeBg.strokeRoundedRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 11);
+        this.championBadgeText.setText(`👑 BEATEN! (+${lead.toLocaleString()})`);
+        this.championBadgeText.setColor('#6ee7b7');
+      } else {
+        const needed = target.opponentScore - this.score + 1;
+        this.championBadgeBg.fillStyle(0x0f172a, 0.85);
+        this.championBadgeBg.fillRoundedRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 11);
+        this.championBadgeBg.lineStyle(1.5, 0x6366f1, 0.9);
+        this.championBadgeBg.strokeRoundedRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 11);
+        this.championBadgeText.setText(`🎯 ${oppName}: ${target.opponentScore.toLocaleString()} (need ${needed.toLocaleString()})`);
+        this.championBadgeText.setColor('#c7d2fe');
+      }
+    } else {
+      this.championBadgeBg.fillStyle(0x0f172a, 0.85);
+      this.championBadgeBg.fillRoundedRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 11);
+      this.championBadgeBg.lineStyle(1.5, 0x334155, 0.9);
+      this.championBadgeBg.strokeRoundedRect(-badgeW / 2, -badgeH / 2, badgeW, badgeH, 11);
+      this.championBadgeText.setText(`🎯 RECORD: ${target.opponentScore.toLocaleString()}`);
+      this.championBadgeText.setColor('#94a3b8');
+    }
+  }
+
+  private checkChampionBeaten(): void {
+    if (
+      this.championTarget &&
+      this.championTarget.hasOpponent &&
+      !this.championBeatenFired &&
+      this.score > this.championTarget.opponentScore
+    ) {
+      this.championBeatenFired = true;
+      this.announceChampionBeaten();
+      this.updateChampionBadge();
+    }
+  }
+
+  private announceChampionBeaten(): void {
+    const { width, height } = this.cameras.main;
+    const sound = SoundService.getInstance();
+    const settings = StorageService.getInstance().getSettings();
+
+    sound.playCombo(5);
+
+    const badgeY = height * 0.32;
+    const banner = this.add.container(width / 2, badgeY).setDepth(200);
+
+    const bg = this.add.graphics();
+    const bannerW = 340;
+    const bannerH = 56;
+    bg.fillStyle(0x0f172a, 0.95);
+    bg.fillRoundedRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH, 20);
+    bg.lineStyle(3, 0xf59e0b, 1);
+    bg.strokeRoundedRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH, 20);
+
+    const oppName = this.championTarget?.opponentNickname || 'Opponent';
+    const title = this.add.text(0, -9, '👑 CHAMPION BEATEN! 👑', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '20px',
+      fontStyle: 'bold',
+      color: '#fef08a',
+      stroke: '#0f172a',
+      strokeThickness: 4,
+    }).setOrigin(0.5);
+
+    const sub = this.add.text(0, 14, `Passed ${oppName}! New Rank Awaits!`, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '13px',
+      color: '#a7f3d0',
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+
+    banner.add([bg, title, sub]);
+    banner.setScale(0.3);
+    banner.setAlpha(0);
+
+    if (!settings.reducedMotion) {
+      for (let i = 0; i < 16; i++) {
+        const p = this.add.sprite(width / 2, badgeY, 'particle_star');
+        p.setTint(0xf59e0b);
+        p.setScale(Phaser.Math.FloatBetween(0.5, 0.9));
+        p.setDepth(201);
+        const angle = (i / 16) * Math.PI * 2;
+        const dist = Phaser.Math.Between(100, 180);
+        this.tweens.add({
+          targets: p,
+          x: width / 2 + Math.cos(angle) * dist,
+          y: badgeY + Math.sin(angle) * dist * 0.7,
+          alpha: 0,
+          duration: 550,
+          ease: 'Power2',
+          onComplete: () => p.destroy(),
+        });
+      }
+    }
+
+    this.tweens.add({
+      targets: banner,
+      scaleX: 1.1,
+      scaleY: 1.1,
+      alpha: 1,
+      duration: 220,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        this.tweens.add({
+          targets: banner,
+          scaleX: 1.0,
+          scaleY: 1.0,
+          duration: 100,
+          onComplete: () => {
+            this.tweens.add({
+              targets: banner,
+              alpha: 0,
+              y: badgeY - 20,
+              duration: 300,
+              delay: 500,
+              ease: 'Cubic.easeIn',
+              onComplete: () => banner.destroy(),
+            });
+          },
+        });
+      },
+    });
+  }
+
   /**
    * Displays the large animated arcade "POP {COLOR}!" announcement in the CENTER
-   * of the gameplay screen. Briefly pauses balloon movement, timers, and scoring
-   * so the player can read the new color fairly, then resumes automatically.
+   * of the gameplay screen.
+   * Runs seamlessly during continuous, uninterrupted gameplay (NEVER pauses or freezes).
+   * Overlay is non-interactive so player clicks and touches pass right through to balloons.
    */
   private announceTargetColor(theme: BalloonTheme, isGameStart: boolean = false): void {
     const { width, height } = this.cameras.main;
     const sound = SoundService.getInstance();
     const settings = StorageService.getInstance().getSettings();
 
-    // 1. Pause gameplay movement & scoring during announcement
+    // 1. Cleanly handle any existing active announcement if colors change rapidly
+    if (this.currentAnnouncement) {
+      this.tweens.killTweensOf(this.currentAnnouncement);
+      this.currentAnnouncement.destroy();
+      this.currentAnnouncement = undefined;
+    }
+    if (this.activeAnnouncementParticles.length > 0) {
+      this.activeAnnouncementParticles.forEach((p) => {
+        if (p && p.active) {
+          this.tweens.killTweensOf(p);
+          p.destroy();
+        }
+      });
+      this.activeAnnouncementParticles = [];
+    }
+
     this.isAnnouncementActive = true;
 
     // 2. Play satisfying transition sound
     sound.playColorAnnouncement();
 
-    // 3. Keep top HUD indicator subtle while center announcement is front-and-center
+    // 3. Keep top HUD indicator fully visible and pulse to highlight the new color
     if (this.targetColorBadge) {
-      this.targetColorBadge.setAlpha(0.35);
+      this.tweens.killTweensOf(this.targetColorBadge);
+      this.targetColorBadge.setAlpha(1);
+      this.tweens.add({
+        targets: this.targetColorBadge,
+        scaleX: 1.15,
+        scaleY: 1.15,
+        duration: 120,
+        yoyo: true,
+        ease: 'Quad.easeOut',
+      });
     }
 
-    // 4. Center Announcement Container
+    // 4. Center Announcement Container - strictly non-interactive so it never blocks balloon taps
     const announcement = this.add.container(width / 2, height * 0.46).setDepth(250);
+    this.currentAnnouncement = announcement;
 
-    const cardWidth = Math.min(width * 0.88, 420);
-    const cardHeight = 136;
+    const cardWidth = Math.min(width * 0.86, 380);
+    const cardHeight = 112;
 
-    // Layer 1: Dark outer glow / shadow
+    // Layer 1: Subtle translucent backdrop allowing balloons to be seen through it
     const shadow = this.add.graphics();
-    shadow.fillStyle(0x0f172a, 0.7);
-    shadow.fillRoundedRect(-cardWidth / 2 - 4, -cardHeight / 2 - 4, cardWidth + 8, cardHeight + 8, 30);
+    shadow.fillStyle(0x0f172a, 0.65);
+    shadow.fillRoundedRect(-cardWidth / 2 - 3, -cardHeight / 2 - 3, cardWidth + 6, cardHeight + 6, 26);
 
-    // Layer 2: Main vibrant color plate
+    // Layer 2: Sleek glassmorphic card with vibrant accent border
     const plate = this.add.graphics();
-    plate.fillStyle(theme.hexNum, 0.96);
-    plate.fillRoundedRect(-cardWidth / 2, -cardHeight / 2, cardWidth, cardHeight, 26);
-    plate.lineStyle(4, 0xffffff, 1);
-    plate.strokeRoundedRect(-cardWidth / 2, -cardHeight / 2, cardWidth, cardHeight, 26);
+    plate.fillStyle(0x0f172a, 0.78);
+    plate.fillRoundedRect(-cardWidth / 2, -cardHeight / 2, cardWidth, cardHeight, 22);
+    // Vibrant accent border matching new target color
+    plate.lineStyle(3.5, theme.hexNum, 0.95);
+    plate.strokeRoundedRect(-cardWidth / 2, -cardHeight / 2, cardWidth, cardHeight, 22);
+
+    // Subtle inner color tint band
+    plate.fillStyle(theme.hexNum, 0.18);
+    plate.fillRoundedRect(-cardWidth / 2 + 3, -cardHeight / 2 + 3, cardWidth - 6, cardHeight - 6, 20);
 
     // Header Kicker
-    const kickerText = isGameStart ? '🎯 GET READY!' : '🔄 NEW TARGET COLOR!';
-    const kicker = this.add.text(0, -cardHeight / 2 + 22, kickerText, {
+    const kickerText = isGameStart ? '🎯 GET READY!' : '🔄 TARGET COLOR SWITCH';
+    const kicker = this.add.text(0, -cardHeight / 2 + 18, kickerText, {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '15px',
+      fontSize: '13px',
       fontStyle: 'bold',
       color: '#fef08a',
       stroke: '#0f172a',
-      strokeThickness: 4,
+      strokeThickness: 3,
       letterSpacing: 2,
     }).setOrigin(0.5);
 
     // Main Large "POP {COLOR}!" Text
-    const mainTitle = this.add.text(0, 4, `POP ${theme.label}!`, {
+    const mainTitle = this.add.text(0, 3, `POP ${theme.label}!`, {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '52px',
+      fontSize: '48px',
       fontStyle: 'bold',
       color: '#ffffff',
       stroke: '#0f172a',
-      strokeThickness: 10,
+      strokeThickness: 9,
     }).setOrigin(0.5);
 
     // Bottom Subtitle Hint
-    const subtitle = this.add.text(0, cardHeight / 2 - 22, `${theme.symbol} ONLY POP ${theme.label} BALLOONS ${theme.symbol}`, {
+    const subtitle = this.add.text(0, cardHeight / 2 - 18, `${theme.symbol} ONLY POP ${theme.label} BALLOONS ${theme.symbol}`, {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '14px',
+      fontSize: '13px',
       fontStyle: 'bold',
-      color: '#ffffff',
+      color: '#e2e8f0',
       stroke: '#0f172a',
-      strokeThickness: 4,
+      strokeThickness: 3.5,
     }).setOrigin(0.5);
 
     announcement.add([shadow, plate, kicker, mainTitle, subtitle]);
 
+    // Explicitly non-interactive so it never blocks clicks or touches on balloons
+    announcement.disableInteractive();
+
     // 5. Sparkle Particle Burst
     if (!settings.reducedMotion) {
       const colors = [theme.hexNum, 0xffffff, 0xfef08a];
-      for (let i = 0; i < 14; i++) {
-        const angle = (i / 14) * Math.PI * 2;
-        const dist = Phaser.Math.Between(130, 200);
+      for (let i = 0; i < 12; i++) {
+        const angle = (i / 12) * Math.PI * 2;
+        const dist = Phaser.Math.Between(110, 180);
         const p = this.add.sprite(width / 2, height * 0.46, 'particle_star');
         p.setTint(colors[i % colors.length]);
-        p.setScale(Phaser.Math.FloatBetween(0.5, 0.85));
+        p.setScale(Phaser.Math.FloatBetween(0.45, 0.75));
         p.setDepth(251);
+        p.disableInteractive();
+        this.activeAnnouncementParticles.push(p);
 
         this.tweens.add({
           targets: p,
@@ -520,60 +818,55 @@ export class GameScene extends Phaser.Scene {
           alpha: 0,
           scaleX: 0.1,
           scaleY: 0.1,
-          duration: 550,
+          duration: 500,
           ease: 'Power2',
-          onComplete: () => p.destroy(),
+          onComplete: () => {
+            const idx = this.activeAnnouncementParticles.indexOf(p);
+            if (idx !== -1) this.activeAnnouncementParticles.splice(idx, 1);
+            p.destroy();
+          },
         });
       }
     }
 
-    // 6. Smooth Arcade Zoom-in Pop Animation & Auto-resume
+    // 6. Smooth Arcade Zoom-in Pop Animation & Smooth Fade-out (~0.86s total)
     const reduced = settings.reducedMotion;
-    announcement.setScale(reduced ? 1 : 0.2);
+    announcement.setScale(reduced ? 1 : 0.25);
     announcement.setAlpha(0);
 
-    // Phase 1: Satisfying zoom-in pop
+    // Phase 1: Quick pop / zoom-in (~190ms)
     this.tweens.add({
       targets: announcement,
-      scaleX: reduced ? 1 : 1.15,
-      scaleY: reduced ? 1 : 1.15,
+      scaleX: reduced ? 1 : 1.12,
+      scaleY: reduced ? 1 : 1.12,
       alpha: 1,
-      duration: reduced ? 140 : 220,
+      duration: reduced ? 120 : 190,
       ease: 'Back.easeOut',
       onComplete: () => {
-        // Phase 2: Settle to normal scale
+        // Phase 2: Settle to normal scale (~90ms)
         this.tweens.add({
           targets: announcement,
           scaleX: 1.0,
           scaleY: 1.0,
-          duration: reduced ? 90 : 120,
+          duration: reduced ? 70 : 90,
           ease: 'Sine.easeInOut',
           onComplete: () => {
-            // Phase 3: Hold for reading (~400ms), then smoothly zoom up & fade out
+            // Phase 3: Hold for reading (~340ms), then smoothly fade out (~240ms)
+            // Total duration: 190 + 90 + 340 + 240 = 860ms (~0.86 seconds)
             this.tweens.add({
               targets: announcement,
               alpha: 0,
-              scaleX: reduced ? 1 : 1.22,
-              scaleY: reduced ? 1 : 1.22,
-              duration: 250,
-              delay: 420,
+              scaleX: reduced ? 1 : 1.18,
+              scaleY: reduced ? 1 : 1.18,
+              duration: 240,
+              delay: 340,
               ease: 'Cubic.easeIn',
               onComplete: () => {
-                announcement.destroy();
-                // Resume gameplay automatically
-                this.isAnnouncementActive = false;
-
-                // Restore & gently punch top indicator into focus
-                if (this.targetColorBadge) {
-                  this.tweens.add({
-                    targets: this.targetColorBadge,
-                    alpha: 1,
-                    scaleX: 1.12,
-                    scaleY: 1.12,
-                    duration: 140,
-                    yoyo: true,
-                  });
+                if (this.currentAnnouncement === announcement) {
+                  this.currentAnnouncement = undefined;
+                  this.isAnnouncementActive = false;
                 }
+                announcement.destroy();
               },
             });
           },
@@ -786,15 +1079,15 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on('gameobjectdown', (pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.GameObject) => {
       if (pointer.button !== 0 && pointer.button !== undefined) return;
-      if (!this.isPlaying || this.isPaused || this.isEnding || this.isAnnouncementActive) return;
+      if (!this.isPlaying || this.isPaused || this.isEnding) return;
       if (gameObject instanceof Balloon) {
         this.handleBalloonPop(gameObject, pointer);
       }
     });
   }
 
-  private handleBalloonPop(balloon: Balloon, pointer?: Phaser.Input.Pointer): void {
-    if (balloon.isPopped || !this.isPlaying || this.isPaused || this.isEnding || this.isAnnouncementActive) return;
+  public handleBalloonPop(balloon: Balloon, pointer?: Phaser.Input.Pointer): void {
+    if (balloon.isPopped || !this.isPlaying || this.isPaused || this.isEnding) return;
 
     const sound = SoundService.getInstance();
     const settings = StorageService.getInstance().getSettings();
@@ -840,14 +1133,14 @@ export class GameScene extends Phaser.Scene {
       const earned = (balloon.scoreValue + (isPerfect ? 50 : 0) + swiftBonus) * this.combo * feverMultiplier;
       this.addScore(earned);
 
-      if (this.mode === 'time_attack') {
+      if (this.mode === 'time_attack' || this.mode === 'color_chaos') {
         this.addTime(2);
       }
       this.feverManager.addCharge(30);
 
       sound.playGold();
       this.createGoldSparkles(bx, by);
-      FloatingText.show(this, bx, by, `+${earned}${this.mode === 'time_attack' ? ' & +2s!' : ''}`, '#fef08a', '32px');
+      FloatingText.show(this, bx, by, `+${earned}${(this.mode === 'time_attack' || this.mode === 'color_chaos') ? ' & +2s!' : ''}`, '#fef08a', '32px');
 
       if (!settings.reducedMotion) this.cameras.main.shake(140, 0.008);
       return;
@@ -909,16 +1202,16 @@ export class GameScene extends Phaser.Scene {
       balloon.pop();
       this.hazardsHit++;
       this.breakCombo();
-      this.feverManager.deductCharge(25);
+      this.feverManager.recordBombHit();
       sound.playHazard();
       this.createHazardParticles(bx, by);
 
-      if (this.mode === 'time_attack') {
+      if (this.mode === 'time_attack' || this.mode === 'color_chaos') {
         this.deductScore(200);
         this.deductTime(3);
         FloatingText.show(this, bx, by, '-200 & -3s!', '#ef4444', '32px');
       } else {
-        // Endless Mode: Hitting bomb costs 1 life
+        // Endless & One Life Mode: Hitting bomb costs 1 life (One Life: ends game immediately)
         this.deductLife('BOMB HIT!');
       }
 
@@ -929,22 +1222,43 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // --- 2. NORMAL BALLOONS (COLOR RUSH MATCHING) ---
+    // --- 2. NORMAL & TRICK BALLOONS (COLOR RUSH MATCHING) ---
+    // CRITICAL: Wrong-color balloons NEVER score or pop, even during Fever!
     const matchCheck = this.colorRushManager.isMatchingColor(balloon.colorKey, currentTime);
-    const isValidTarget = matchCheck.isMatch || feverActive;
+    const isValidTarget = matchCheck.isMatch;
 
     if (isValidTarget) {
       // ONLY matching color balloon pops and earns points!
       balloon.pop();
       this.totalPopped++;
       this.refreshCombo();
-      this.feverManager.addCharge(14);
+
+      // In Color Chaos mode: count target pops towards next color switch
+      if (this.mode === 'color_chaos') {
+        this.colorChaosTargetPopsCount++;
+        // Switch every 3 pops, or every 2 pops as difficulty increases (elapsedGameplayTime >= 15s)
+        const popsNeeded = this.elapsedGameplayTime >= 15 ? 2 : 3;
+        if (this.colorChaosTargetPopsCount >= popsNeeded) {
+          this.colorChaosTargetPopsCount = 0;
+          this.colorRushManager.triggerColorSwitch(currentTime);
+        }
+      }
+
+      // Build Fever streak (10 consecutive correct-color pops triggers 5s Fever Mode)
+      const feverActivated = this.feverManager.recordCorrectPop();
+      if (feverActivated) {
+        this.feverActivations++;
+        sound.playFeverStart();
+        this.announceFeverMode();
+        if (!settings.reducedMotion) {
+          this.cameras.main.shake(200, 0.012);
+        }
+      }
 
       if (isPerfect) {
         this.perfectPops++;
         sound.playPerfect();
         FloatingText.show(this, bx, by - 40, 'PERFECT! +50', '#fef08a', '26px');
-        this.feverManager.addCharge(25);
       }
 
       if (balloon.isSmall) {
@@ -962,17 +1276,20 @@ export class GameScene extends Phaser.Scene {
         this,
         bx,
         by,
-        `+${earned}${this.combo > 1 ? ` (x${this.combo})` : ''}`,
-        theme.highlight,
-        this.combo >= 3 ? '32px' : '26px'
+        `+${earned}${feverActive ? ' 🔥 2X!' : this.combo > 1 ? ` (x${this.combo})` : ''}`,
+        feverActive ? '#fef08a' : theme.highlight,
+        feverActive ? '34px' : this.combo >= 3 ? '32px' : '26px'
       );
+
+      this.checkChampionBeaten();
+      this.updateChampionBadge();
 
       if (this.combo >= 4 && !settings.reducedMotion) {
         this.cameras.main.shake(120, 0.005);
       }
     } else {
       // WRONG COLOR TAP!
-      // Balloon does NOT pop! Score does NOT increase!
+      // Balloon does NOT pop! Score does NOT increase! Fever progress resets!
       const lastWrongTap = (balloon as unknown as { lastWrongTapTime?: number }).lastWrongTapTime || 0;
       if (currentTime - lastWrongTap < 260) return;
       (balloon as unknown as { lastWrongTapTime?: number }).lastWrongTapTime = currentTime;
@@ -983,9 +1300,9 @@ export class GameScene extends Phaser.Scene {
       // Subtle error sound
       sound.playWrongColor();
 
-      // Reset combo
+      // Reset combo & Fever progress
       this.breakCombo();
-      this.feverManager.deductCharge(15);
+      this.feverManager.recordWrongPop();
 
       // Subtle wobble tween on the intact balloon
       this.tweens.add({
@@ -998,11 +1315,14 @@ export class GameScene extends Phaser.Scene {
         ease: 'Quad.easeInOut',
       });
 
-      if (this.mode === 'endless') {
+      if (this.mode === 'one_life') {
+        // One Life Challenge: Wrong color ends the game immediately
+        this.deductLife('WRONG COLOR!');
+      } else if (this.mode === 'endless') {
         // Endless Mode: Wrong color tap costs 1 life
         this.deductLife('WRONG COLOR!');
       } else {
-        // Time Attack: No score gain, reset combo
+        // Time Attack & Color Chaos: No score gain, reset combo
         if (!settings.reducedMotion) this.cameras.main.shake(100, 0.005);
       }
     }
@@ -1028,9 +1348,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleBalloonEscape(balloon: Balloon): void {
-    if (this.mode !== 'endless' || !this.isPlaying || this.isEnding) return;
+    if ((this.mode !== 'endless' && this.mode !== 'one_life') || !this.isPlaying || this.isEnding) return;
 
-    // In Endless, letting an active target color balloon escape costs 1 life
+    // In Endless & One Life, letting an active target color balloon escape costs 1 life
     if (balloon.balloonType === 'normal' && balloon.colorKey === this.colorRushManager.getActiveColorKey()) {
       if (!this.feverManager.isActive()) {
         this.deductLife('TARGET ESCAPED!');
@@ -1038,7 +1358,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private deductLife(reason: string): void {
+  public deductLife(reason: string): void {
     this.lives = Math.max(0, this.lives - 1);
     SoundService.getInstance().playLifeLost();
 
@@ -1049,12 +1369,15 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    FloatingText.show(this, this.cameras.main.width / 2, 190, `${reason} -1 LIFE`, '#ef4444', '30px');
+    const cam = this.cameras?.main;
+    if (cam) {
+      FloatingText.show(this, cam.width / 2, 190, `${reason} -1 LIFE`, '#ef4444', '30px');
 
-    const settings = StorageService.getInstance().getSettings();
-    if (!settings.reducedMotion) {
-      this.cameras.main.shake(220, 0.015);
-      this.cameras.main.flash(180, 239, 68, 68);
+      const settings = StorageService.getInstance().getSettings();
+      if (!settings.reducedMotion) {
+        cam.shake(220, 0.015);
+        cam.flash(180, 239, 68, 68);
+      }
     }
 
     if (this.lives <= 0) {
@@ -1140,7 +1463,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   public update(time: number, delta: number): void {
-    if (!this.isPlaying || this.isPaused || this.isEnding || this.isAnnouncementActive) return;
+    if (!this.isPlaying || this.isPaused || this.isEnding) return;
 
     const dt = delta / 1000;
 
@@ -1150,7 +1473,7 @@ export class GameScene extends Phaser.Scene {
     // 1. UPDATE MODE CLOCKS & PROGRESSIVE DIFFICULTY TIERS
     const difficulty = this.getDifficultyFactor();
 
-    if (this.mode === 'time_attack') {
+    if (this.mode === 'time_attack' || this.mode === 'color_chaos') {
       this.timeLeft -= dt;
       if (this.timeLeft <= 0) {
         this.timeLeft = 0;
@@ -1165,10 +1488,18 @@ export class GameScene extends Phaser.Scene {
       const expectedTier = this.elapsedGameplayTime >= 20 ? 3 : this.elapsedGameplayTime >= 10 ? 2 : 1;
       if (expectedTier > this.currentDifficultyTier) {
         this.currentDifficultyTier = expectedTier;
-        if (expectedTier === 2) {
-          this.announceSpeedUp(2, 'MEDIUM SPEED • MORE BALLOONS');
-        } else if (expectedTier === 3) {
-          this.announceSpeedUp(3, 'FAST BALLOONS • QUICK COLOR SHIFTS');
+        if (this.mode === 'color_chaos') {
+          if (expectedTier === 2) {
+            this.announceSpeedUp(2, 'TIER 2 • SHIFT EVERY 2 POPS!');
+          } else if (expectedTier === 3) {
+            this.announceSpeedUp(3, 'TIER 3 • RAPID CHAOS RUSH!');
+          }
+        } else {
+          if (expectedTier === 2) {
+            this.announceSpeedUp(2, 'MEDIUM SPEED • MORE BALLOONS');
+          } else if (expectedTier === 3) {
+            this.announceSpeedUp(3, 'FAST BALLOONS • QUICK COLOR SHIFTS');
+          }
         }
       }
 
@@ -1188,18 +1519,17 @@ export class GameScene extends Phaser.Scene {
           });
         }
       } else {
-        this.timerText.setColor('#38bdf8');
+        this.timerText.setColor(this.mode === 'color_chaos' ? '#e879f9' : '#38bdf8');
       }
     } else {
-      // Endless Rush Clock
+      // Endless Rush & One Life Clock
       this.survivalTime = this.elapsedGameplayTime;
 
       const m = Math.floor(this.survivalTime / 60);
       const s = Math.floor(this.survivalTime % 60);
       this.timerText.setText(`${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`);
 
-      // Endless Mode: Keep increasing difficulty every 15 seconds!
-      // Tier 1: 0-15s, Tier 2: 15-30s, Tier 3: 30-45s, Tier 4: 45-60s, etc.
+      // Keep increasing difficulty every 15 seconds!
       const expectedTier = Math.floor(this.elapsedGameplayTime / 15) + 1;
       if (expectedTier > this.currentDifficultyTier) {
         this.currentDifficultyTier = expectedTier;
@@ -1216,11 +1546,24 @@ export class GameScene extends Phaser.Scene {
         const sub = subtitles[expectedTier] || `TIER ${expectedTier} • SPEED UP`;
         this.announceSpeedUp(expectedTier, sub);
       }
+
+      // One Life subtle danger vignette as survival time grows
+      if (this.mode === 'one_life' && this.dangerOverlay) {
+        this.dangerOverlay.clear();
+        if (this.elapsedGameplayTime >= 20) {
+          const { width, height } = this.cameras.main;
+          const tension = Math.min(1, (this.elapsedGameplayTime - 20) / 40);
+          const pulse = (Math.sin(this.time.now * 0.005) + 1) * 0.5;
+          const alpha = 0.08 * tension + 0.08 * tension * pulse;
+          this.dangerOverlay.lineStyle(10 + 10 * tension, 0xef4444, alpha);
+          this.dangerOverlay.strokeRect(0, 0, width, height);
+        }
+      }
     }
 
     // 2. UPDATE COLOR RUSH SYSTEM
     // Target-color switching becomes faster as difficulty increases
-    if (this.mode === 'time_attack') {
+    if (this.mode === 'time_attack' || this.mode === 'color_chaos') {
       const scaledInterval = Math.max(3.8, 7.2 - difficulty * 3.4); // 7.2s down to 3.8s
       this.colorRushManager.setInterval(scaledInterval);
     } else {
@@ -1296,43 +1639,55 @@ export class GameScene extends Phaser.Scene {
     const isFever = this.feverManager.isActive();
 
     this.feverBarFill.clear();
+    if (this.feverGlowOverlay) {
+      this.feverGlowOverlay.clear();
+    }
 
     if (isFever) {
-      const progress = this.feverManager.getRemainingTime() / 5.0;
+      const remaining = this.feverManager.getRemainingTime();
+      const progress = remaining / 5.0;
       this.feverBarFill.fillStyle(0xfbbf24, 1);
       this.feverBarFill.fillRoundedRect(-60, -12, 120 * progress, 24, 12);
-      this.feverLabel.setText('🔥 FEVER ACTIVE!');
+      this.feverLabel.setText(`🔥 FEVER: ${remaining.toFixed(1)}s`);
       this.feverLabel.setColor('#0f172a');
+
+      // Subtle warm golden pulsating glow aura on background
+      if (this.feverGlowOverlay) {
+        const { width, height } = this.cameras.main;
+        const glowAlpha = 0.08 + Math.sin(this.time.now * 0.008) * 0.04;
+        this.feverGlowOverlay.fillStyle(0xf59e0b, glowAlpha);
+        this.feverGlowOverlay.fillRect(0, 0, width, height);
+      }
     } else {
       this.feverBarFill.fillStyle(0xf43f5e, 0.85);
       this.feverBarFill.fillRoundedRect(-60, -12, 120 * (charge / 100), 24, 12);
-      this.feverLabel.setText(`FEVER: ${Math.floor(charge)}%`);
+      this.feverLabel.setText(`FEVER: ${this.feverManager.getConsecutivePops()}/10`);
       this.feverLabel.setColor('#ffffff');
     }
   }
 
   public getDifficultyFactor(): number {
-    if (this.mode === 'time_attack') {
+    if (this.mode === 'time_attack' || this.mode === 'color_chaos') {
       // 0-30s based strictly on elapsed gameplay time:
       // 0-10s: Easy (0.0 -> 0.333)
       // 10-20s: Medium (0.333 -> 0.667)
       // 20-30s: Fast (0.667 -> 1.0)
       return Math.min(1.0, Math.max(0, this.elapsedGameplayTime / 30.0));
     } else {
-      // Endless: Smooth progressive scaling every 15s up to 120s with reasonable limit
+      // Endless & One Life: Smooth progressive scaling every 15s up to 120s with reasonable limit
       return Math.min(1.0, Math.max(0, this.elapsedGameplayTime / 120.0));
     }
   }
 
   public getSpawnInterval(): number {
     const difficulty = this.getDifficultyFactor();
-    if (this.mode === 'time_attack') {
+    if (this.mode === 'time_attack' || this.mode === 'color_chaos') {
       // 0-10s (d=0 -> 0.33): 0.82s down to 0.67s (easy, slow spawn)
       // 10-20s (d=0.33 -> 0.67): 0.67s down to 0.51s (more balloons)
       // 20-30s (d=0.67 -> 1.0): 0.51s down to 0.36s (fast rush)
       return 0.82 - difficulty * 0.46;
     } else {
-      // Endless: scales smoothly every 15s up to 120s with reasonable limit (0.34s)
+      // Endless & One Life: scales smoothly every 15s up to 120s with reasonable limit (0.34s)
       return 0.82 - difficulty * 0.48; // 0.82s down to 0.34s
     }
   }
@@ -1441,32 +1796,56 @@ export class GameScene extends Phaser.Scene {
       // Normal balloon
       type = 'normal';
 
-      // Anti-grouping algorithm:
-      // Target balloons NEVER spawn in a group!
-      // Must have at least minDistractorsBetweenTargets (2) non-target spawns between target spawns.
-      const distractorColors = ['red', 'blue', 'green', 'yellow', 'purple'].filter(
-        (c) => c !== activeTargetKey
-      );
-
-      const canSpawnTarget = this.spawnsSinceTarget >= this.minDistractorsBetweenTargets;
-      const mustSpawnTarget = this.spawnsSinceTarget >= this.maxDistractorsBetweenTargets;
-
-      if (!canSpawnTarget) {
-        // Enforce distractor spawn: strictly pick from OTHER colors
-        colorKey = distractorColors[Math.floor(Math.random() * distractorColors.length)];
-        this.spawnsSinceTarget++;
-      } else if (mustSpawnTarget) {
-        // Guaranteed target spawn after enough distractors
-        colorKey = activeTargetKey;
-        this.spawnsSinceTarget = 0;
-      } else {
-        // Between min and max: 35% chance of target, 65% chance of distractor
-        if (Math.random() < 0.35) {
+      if (this.mode === 'color_chaos') {
+        const distractorColors = ['red', 'blue', 'green', 'yellow', 'purple'].filter(
+          (c) => c !== activeTargetKey
+        );
+        // Guarantee reachable balloons: if no target balloon is currently on screen, force target spawn
+        const reachableTargets = this.balloons.filter((b) => !b.isPopped && b.colorKey === activeTargetKey);
+        if (reachableTargets.length === 0) {
           colorKey = activeTargetKey;
           this.spawnsSinceTarget = 0;
+        } else if (this.spawnsSinceTarget >= 1) {
+          // 50% target chance once at least 1 distractor has spawned
+          if (Math.random() < 0.5) {
+            colorKey = activeTargetKey;
+            this.spawnsSinceTarget = 0;
+          } else {
+            colorKey = distractorColors[Math.floor(Math.random() * distractorColors.length)];
+            this.spawnsSinceTarget++;
+          }
         } else {
           colorKey = distractorColors[Math.floor(Math.random() * distractorColors.length)];
           this.spawnsSinceTarget++;
+        }
+      } else {
+        // Anti-grouping algorithm:
+        // Target balloons NEVER spawn in a group!
+        // Must have at least minDistractorsBetweenTargets (2) non-target spawns between target spawns.
+        const distractorColors = ['red', 'blue', 'green', 'yellow', 'purple'].filter(
+          (c) => c !== activeTargetKey
+        );
+
+        const canSpawnTarget = this.spawnsSinceTarget >= this.minDistractorsBetweenTargets;
+        const mustSpawnTarget = this.spawnsSinceTarget >= this.maxDistractorsBetweenTargets;
+
+        if (!canSpawnTarget) {
+          // Enforce distractor spawn: strictly pick from OTHER colors
+          colorKey = distractorColors[Math.floor(Math.random() * distractorColors.length)];
+          this.spawnsSinceTarget++;
+        } else if (mustSpawnTarget) {
+          // Guaranteed target spawn after enough distractors
+          colorKey = activeTargetKey;
+          this.spawnsSinceTarget = 0;
+        } else {
+          // Between min and max: 35% chance of target, 65% chance of distractor
+          if (Math.random() < 0.35) {
+            colorKey = activeTargetKey;
+            this.spawnsSinceTarget = 0;
+          } else {
+            colorKey = distractorColors[Math.floor(Math.random() * distractorColors.length)];
+            this.spawnsSinceTarget++;
+          }
         }
       }
     }
@@ -1517,6 +1896,25 @@ export class GameScene extends Phaser.Scene {
 
     const startY = height + 80;
 
+    // Trick Balloon movement patterns (progressively introduced with elapsed gameplay time)
+    let trickType: TrickType = 'none';
+    if (type === 'normal') {
+      if (this.elapsedGameplayTime >= 20) {
+        const rollTrick = Math.random();
+        if (rollTrick < 0.08) {
+          trickType = 'zigzag';
+        } else if (rollTrick < 0.16) {
+          trickType = 'speedster';
+        } else if (rollTrick < 0.24) {
+          trickType = 'dodger';
+        }
+      } else if (this.elapsedGameplayTime >= 10) {
+        if (Math.random() < 0.14) {
+          trickType = 'zigzag';
+        }
+      }
+    }
+
     const balloon = new Balloon(this, {
       type,
       colorKey,
@@ -1527,6 +1925,7 @@ export class GameScene extends Phaser.Scene {
       startY,
       scale: balloonScale,
       isSmall,
+      trickType,
       scoreValue:
         type === 'golden'
           ? 300
@@ -1673,7 +2072,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private togglePause(): void {
+  public togglePause(): void {
     if (!this.isPlaying || this.isEnding) return;
     this.isPaused = !this.isPaused;
     this.pauseOverlay.setVisible(this.isPaused);
@@ -1685,15 +2084,15 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private restartGame(): void {
+  public restartGame(): void {
     this.scene.restart({ mode: this.mode });
   }
 
-  private returnToMenu(): void {
+  public returnToMenu(): void {
     this.scene.start('MenuScene');
   }
 
-  private endGame(): void {
+  public endGame(): void {
     if (this.isEnding) return;
     this.isEnding = true;
     this.isPlaying = false;
@@ -1707,22 +2106,25 @@ export class GameScene extends Phaser.Scene {
 
     const elapsedSecs = Math.floor(this.elapsedGameplayTime);
 
-    if (this.mode === 'time_attack') {
-      isNewBestScore = storage.saveTimeAttackHighScore(this.score);
-      highScore = storage.getTimeAttackHighScore();
-    } else {
-      isNewBestScore = storage.saveEndlessHighScore(this.score);
-      isNewBestTime = storage.saveEndlessBestTime(this.survivalTime);
-      highScore = storage.getEndlessHighScore();
-      bestSurvivalTime = storage.getEndlessBestTime();
+    isNewBestScore = storage.saveHighScoreForMode(this.mode, this.score);
+    highScore = storage.getHighScoreForMode(this.mode);
+
+    if (this.mode === 'endless' || this.mode === 'one_life') {
+      isNewBestTime = storage.saveBestTimeForMode(this.mode, this.survivalTime);
+      bestSurvivalTime = storage.getBestTimeForMode(this.mode) || 0;
     }
 
-    // Automatically submit score to shared Firebase Family Leaderboard on round completion
-    LeaderboardService.getInstance()
-      .submitScore(this.mode, this.score, elapsedSecs)
-      .catch((err) => {
-        console.warn('[GameScene] Leaderboard submission error:', err);
-      });
+    const finalScore = this.score;
+    const fallbackTarget: ChampionTarget = this.championTarget || {
+      opponentUid: '',
+      opponentNickname: 'Leader',
+      opponentScore: highScore,
+      opponentRank: 1,
+      playerPreviousRank: 1,
+      isCurrentLeader: true,
+      hasOpponent: false,
+      isOffline: true,
+    };
 
     const stats: GameStats = {
       mode: this.mode,
@@ -1738,10 +2140,44 @@ export class GameScene extends Phaser.Scene {
       feverActivations: this.feverActivations,
       isNewBestScore,
       isNewBestTime,
+      championTarget: this.championTarget,
     };
+
+    // Automatically submit score to shared Firebase Family Leaderboard on round completion
+    LeaderboardService.getInstance()
+      .submitScore(this.mode, finalScore, elapsedSecs)
+      .then(async () => {
+        try {
+          const summary = await ChampionTracker.getInstance().getPostGameSummary(
+            this.mode,
+            finalScore,
+            fallbackTarget
+          );
+          stats.postGameSummary = summary;
+        } catch (err) {
+          console.warn('[GameScene] Post-game summary error:', err);
+        }
+      })
+      .catch((err) => {
+        console.warn('[GameScene] Leaderboard submission error:', err);
+      });
 
     this.balloons.forEach((b) => b.destroy());
     this.balloons = [];
+
+    if (this.currentAnnouncement) {
+      this.tweens.killTweensOf(this.currentAnnouncement);
+      this.currentAnnouncement.destroy();
+      this.currentAnnouncement = undefined;
+    }
+    this.activeAnnouncementParticles.forEach((p) => {
+      if (p && p.active) {
+        this.tweens.killTweensOf(p);
+        p.destroy();
+      }
+    });
+    this.activeAnnouncementParticles = [];
+    this.isAnnouncementActive = false;
 
     this.cameras.main.fadeOut(350, 15, 23, 42);
     this.cameras.main.once('camerafadeoutcomplete', () => {

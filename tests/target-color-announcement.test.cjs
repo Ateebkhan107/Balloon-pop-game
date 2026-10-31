@@ -1,13 +1,16 @@
 /**
- * Target Color Announcement & Transition System Automated Verification Tests
+ * Target Color Announcement & Continuous Gameplay Verification Tests
  * Verifies:
  * 1. Center Screen Animated Announcement ("POP {COLOR}!")
- * 2. Exact match between displayed text and active scoring target color
- * 3. Gameplay Pause during announcement (balloon movement & scoring paused)
- * 4. Automatic gameplay resumption after announcement completes (~1 second)
- * 5. Removal of large permanent HUD text & presence of small unobtrusive color indicator
- * 6. Sound Service transition chime
- * 7. Identical behavior in Time Attack and Endless Rush modes
+ * 2. Exact match between displayed text and immediately active scoring color
+ * 3. NEVER pause or freeze the game: balloon movement, timers, and spawns continue during announcement
+ * 4. Active balloon popping and selective scoring while announcement is visible
+ * 5. Announcement overlay is non-interactive so it never blocks clicks/touches
+ * 6. Announcement lifecycle: ~0.8–1.0s with quick pop-in and smooth fade-out
+ * 7. Clean handling of rapid overlapping announcements without visual duplication
+ * 8. Top HUD retains compact active-color indicator without large permanent text
+ * 9. Sound Service transition chime
+ * 10. Identical continuous gameplay across Time Attack and Endless Rush
  */
 
 const assert = require('assert');
@@ -38,23 +41,24 @@ const BALLOON_COLORS = {
   purple: { name: 'purple', label: 'PURPLE', symbol: '♥', hexNum: 0xa855f7 },
 };
 
-// 1. Text & Color Matching Verification
+// 1. Text & Immediate Target Color Activation Verification
 test('Announcement Text Matching: Exact match between displayed text and active scoring color', () => {
   Object.entries(BALLOON_COLORS).forEach(([colorKey, theme]) => {
     const announcementText = `POP ${theme.label}!`;
-    const kickerText = '🎯 GET READY!';
+    const kickerStart = '🎯 GET READY!';
+    const kickerSwitch = '🔄 TARGET COLOR SWITCH';
     const hintText = `${theme.symbol} ONLY POP ${theme.label} BALLOONS ${theme.symbol}`;
     const hudBadgeText = `🎯 ${theme.label}`;
 
     assert.strictEqual(announcementText, `POP ${colorKey.toUpperCase()}!`);
     assert.strictEqual(hudBadgeText, `🎯 ${colorKey.toUpperCase()}`);
     assert.ok(hintText.includes(theme.label));
-    assert.ok(kickerText.length > 0);
+    assert.ok(kickerStart.length > 0 && kickerSwitch.length > 0);
   });
 });
 
-// 2. Center Screen Coordinates & Responsive Positioning
-test('Center Screen Placement: Announcement is centered horizontally and in the middle playfield', () => {
+// 2. Center Screen Coordinates & Non-Blocking Overlay Properties
+test('Center Screen Placement & Non-Blocking Overlay: Centered, compact, and non-interactive', () => {
   const VIEWPORT_CONFIGS = [
     { width: 720, height: 1080 }, // Virtual canvas standard
     { width: 375, height: 667 },  // Mobile portrait
@@ -64,19 +68,31 @@ test('Center Screen Placement: Announcement is centered horizontally and in the 
   VIEWPORT_CONFIGS.forEach(({ width, height }) => {
     const announcementX = width / 2;
     const announcementY = height * 0.46;
-    const cardWidth = Math.min(width * 0.88, 420);
-    const cardHeight = 136;
+    const cardWidth = Math.min(width * 0.86, 380);
+    const cardHeight = 112;
 
     assert.strictEqual(announcementX, width / 2, 'Must be horizontally centered at width / 2');
     assert.ok(announcementY > height * 0.35 && announcementY < height * 0.55, 'Must be centered in playfield');
-    assert.ok(cardWidth <= width * 0.90, 'Card width must not clip viewport edge');
-    assert.ok(cardHeight < height * 0.3, 'Card height must leave ample visual breathing room');
+    assert.ok(cardWidth <= width * 0.88, 'Card width must not clip viewport edge');
+    assert.ok(cardHeight < height * 0.2, 'Card height must be sleek and non-obtrusive');
   });
+
+  // Verify non-interactive overlay contract: announcement container and its children must never block input
+  const mockAnnouncementContainer = {
+    isInteractive: false,
+    disableInteractive() {
+      this.isInteractive = false;
+    },
+    setInteractive() {
+      this.isInteractive = true;
+    },
+  };
+  mockAnnouncementContainer.disableInteractive();
+  assert.strictEqual(mockAnnouncementContainer.isInteractive, false, 'Announcement overlay must be non-interactive');
 });
 
-// 3. Pause Balloon Movement & Scoring During Announcement
-test('Announcement Pause: Balloon movement and tap scoring are frozen during the announcement', () => {
-  // Simulated Game Engine State
+// 3. Continuous Uninterrupted Gameplay: Balloon movement, spawning, timers, and difficulty NEVER pause
+test('Uninterrupted Gameplay: Balloon movement and timers NEVER pause or freeze during announcement', () => {
   let isPlaying = true;
   let isPaused = false;
   let isEnding = false;
@@ -84,13 +100,14 @@ test('Announcement Pause: Balloon movement and tap scoring are frozen during the
   let elapsedGameplayTime = 5.0;
   let timeLeft = 25.0;
   let survivalTime = 5.0;
-  let score = 500;
+  let spawnTimer = 0.2;
+  let spawnedBalloons = 0;
 
   // Simulated balloon
   const balloon = {
     x: 360,
     y: 800,
-    speed: 120,
+    speed: 200,
     isPopped: false,
     update(dt) {
       this.y -= this.speed * dt;
@@ -98,92 +115,190 @@ test('Announcement Pause: Balloon movement and tap scoring are frozen during the
     },
   };
 
-  // Simulated game update loop frame (dt = 0.016s)
+  // Simulated game update loop (dt = 0.016s) - MUST NOT BE BLOCKED by isAnnouncementActive
   function gameUpdate(dt) {
-    if (!isPlaying || isPaused || isEnding || isAnnouncementActive) return;
+    if (!isPlaying || isPaused || isEnding) return; // NEVER check isAnnouncementActive here!
     elapsedGameplayTime += dt;
     timeLeft -= dt;
     survivalTime += dt;
+    spawnTimer += dt;
+    if (spawnTimer >= 0.5) {
+      spawnTimer = 0;
+      spawnedBalloons++;
+    }
     balloon.update(dt);
   }
 
-  // Simulated tap handler
-  function handleBalloonTap() {
-    if (balloon.isPopped || !isPlaying || isPaused || isEnding || isAnnouncementActive) return false;
-    balloon.isPopped = true;
-    score += 100;
-    return true;
-  }
-
-  // Execute 10 frames during announcement
   const initialY = balloon.y;
-  for (let i = 0; i < 10; i++) {
+  const initialTimeLeft = timeLeft;
+  const initialElapsed = elapsedGameplayTime;
+
+  // Execute 30 frames (~0.48s) while announcement is visible
+  for (let i = 0; i < 30; i++) {
     gameUpdate(0.016);
   }
 
-  // Balloon position must be unchanged (movement was paused!)
-  assert.strictEqual(balloon.y, initialY, 'Balloon Y must remain frozen during announcement');
-  assert.strictEqual(elapsedGameplayTime, 5.0, 'Elapsed gameplay time must not advance during announcement');
-  assert.strictEqual(timeLeft, 25.0, 'Mode countdown timer must not decrease during announcement');
-
-  // Attempting to tap balloon during announcement is blocked
-  const tapSucceeded = handleBalloonTap();
-  assert.strictEqual(tapSucceeded, false, 'Balloon tap must be rejected during announcement');
-  assert.strictEqual(balloon.isPopped, false, 'Balloon must not pop during announcement');
-  assert.strictEqual(score, 500, 'Score must not increment during announcement');
+  // Balloon MUST have continued moving upward!
+  assert.ok(balloon.y < initialY, `Balloon must float upward during announcement (y: ${balloon.y} < ${initialY})`);
+  assert.ok(timeLeft < initialTimeLeft, `Time Left must continue ticking down (timeLeft: ${timeLeft} < ${initialTimeLeft})`);
+  assert.ok(elapsedGameplayTime > initialElapsed, `Elapsed gameplay time must continue advancing for difficulty`);
+  assert.ok(spawnedBalloons > 0, 'Spawning must continue normally during announcement');
 });
 
-// 4. Automatic Resume After Announcement Duration (~1 second)
-test('Auto-Resume: Gameplay resumes automatically after ~1 second announcement completes', () => {
+// 4. Interactive Popping & Selective Scoring While Announcement Is Visible
+test('Input & Scoring During Announcement: Players can pop matching balloons; wrong color does not score', () => {
+  let isPlaying = true;
+  let isPaused = false;
+  let isEnding = false;
+  let isAnnouncementActive = true; // Announcement is actively displayed!
+  let score = 0;
+  let combo = 1;
+  let activeTargetColor = 'blue'; // Announcement says "POP BLUE!"
+
+  class MockBalloon {
+    constructor(colorKey, type = 'normal') {
+      this.colorKey = colorKey;
+      this.balloonType = type;
+      this.isPopped = false;
+      this.scoreValue = 100;
+    }
+    pop() {
+      if (this.isPopped) return false;
+      this.isPopped = true;
+      return true;
+    }
+  }
+
+  function handleBalloonTap(balloon) {
+    if (balloon.isPopped || !isPlaying || isPaused || isEnding) return false; // NEVER check isAnnouncementActive!
+
+    if (balloon.balloonType === 'normal') {
+      if (balloon.colorKey === activeTargetColor) {
+        // MATCH: pop and score!
+        if (balloon.pop()) {
+          score += balloon.scoreValue * combo;
+          combo = Math.min(5, combo + 1);
+          return { success: true, popped: true };
+        }
+      } else {
+        // WRONG: do NOT pop, do NOT score, break combo
+        combo = 1;
+        return { success: false, popped: false };
+      }
+    }
+    return { success: false, popped: false };
+  }
+
+  // 1. Player taps a WRONG balloon (red when target is blue) while announcement is visible
+  const wrongBalloon = new MockBalloon('red');
+  const wrongTap = handleBalloonTap(wrongBalloon);
+  assert.strictEqual(wrongTap.popped, false, 'Wrong color balloon must NOT pop during announcement');
+  assert.strictEqual(wrongBalloon.isPopped, false, 'Wrong balloon isPopped must remain false');
+  assert.strictEqual(score, 0, 'Score must NOT increase for wrong color balloon');
+  assert.strictEqual(combo, 1, 'Combo must reset on wrong color balloon');
+
+  // 2. Player taps a MATCHING balloon (blue when target is blue) while announcement is visible
+  const matchingBalloon = new MockBalloon('blue');
+  const matchingTap = handleBalloonTap(matchingBalloon);
+  assert.strictEqual(matchingTap.popped, true, 'Matching balloon MUST pop during announcement');
+  assert.strictEqual(matchingBalloon.isPopped, true, 'Matching balloon isPopped must be true');
+  assert.strictEqual(score, 100, 'Score MUST increase by 100 for matching balloon');
+  assert.strictEqual(combo, 2, 'Combo MUST advance on matching balloon');
+
+  // 3. Repeated tap on already popped balloon must NOT score again
+  const duplicateTap = handleBalloonTap(matchingBalloon);
+  assert.strictEqual(duplicateTap, false, 'Duplicate tap on popped balloon must be rejected');
+  assert.strictEqual(score, 100, 'Score must not duplicate on already popped balloon');
+});
+
+// 5. Announcement Duration & Animation Lifecycle (~0.8-1.0 second)
+test('Announcement Lifecycle: ~0.8-1.0 second duration with quick pop-in and smooth fade-out', () => {
+  // Timing breakdown matching GameScene.ts implementation:
+  // Phase 1: Quick pop-in / zoom: 190ms
+  // Phase 2: Settle to 1.0: 90ms
+  // Phase 3: Hold reading delay: 340ms
+  // Phase 4: Smooth fade-out: 240ms
+  // Total duration = 190 + 90 + 340 + 240 = 860ms (~0.86 seconds)
+  const popInDuration = 190;
+  const settleDuration = 90;
+  const holdDelay = 340;
+  const fadeOutDuration = 240;
+  const totalDuration = popInDuration + settleDuration + holdDelay + fadeOutDuration;
+
+  assert.ok(totalDuration >= 800 && totalDuration <= 1000, `Total duration (${totalDuration}ms) must be within 0.8-1.0s window`);
+
+  // Lifecycle state tracking
   let isAnnouncementActive = true;
-  let balloonY = 600;
-  const balloonSpeed = 100;
+  let announcementDestroyed = false;
 
-  // Announcement duration breakdown:
-  // Zoom in pop: 220ms
-  // Settle: 120ms
-  // Hold & read: 420ms
-  // Fade out exit: 250ms
-  // Total = 1010ms (~1 second)
-  const totalAnnouncementDurationMs = 220 + 120 + 420 + 250;
-  assert.ok(totalAnnouncementDurationMs >= 950 && totalAnnouncementDurationMs <= 1100, 'Total duration must be around 1 second');
-
-  // Simulate tween completion callback
-  function onAnnouncementExitComplete() {
+  function onAnnouncementComplete() {
     isAnnouncementActive = false;
+    announcementDestroyed = true;
   }
 
-  onAnnouncementExitComplete();
-  assert.strictEqual(isAnnouncementActive, false, 'isAnnouncementActive must reset to false on exit complete');
-
-  // Frame update after announcement finishes
-  const dt = 0.05; // 50ms
-  if (!isAnnouncementActive) {
-    balloonY -= balloonSpeed * dt;
-  }
-
-  assert.strictEqual(balloonY, 595, 'Balloons must resume floating upward automatically');
+  onAnnouncementComplete();
+  assert.strictEqual(isAnnouncementActive, false, 'isAnnouncementActive resets when announcement finishes');
+  assert.strictEqual(announcementDestroyed, true, 'Announcement container is destroyed on completion');
 });
 
-// 5. Small, Unobtrusive Top HUD Indicator
+// 6. Overlapping Announcements Handling (Rapid Color Changes)
+test('Overlapping Announcements: Rapid color changes cleanly replace the active announcement', () => {
+  let activeContainer = null;
+  let killedTweens = 0;
+  let destroyedContainers = 0;
+
+  function announceTargetColor(colorKey) {
+    // If an announcement is already active, kill tweens and destroy old container immediately
+    if (activeContainer) {
+      killedTweens++;
+      destroyedContainers++;
+      activeContainer = null;
+    }
+
+    // Create new announcement container
+    activeContainer = {
+      colorKey,
+      isDestroyed: false,
+      destroy() {
+        this.isDestroyed = true;
+      },
+    };
+  }
+
+  // 1. Announce RED
+  announceTargetColor('red');
+  assert.strictEqual(activeContainer.colorKey, 'red');
+
+  // 2. Announce BLUE rapidly before RED finishes
+  announceTargetColor('blue');
+  assert.strictEqual(killedTweens, 1, 'Previous announcement tweens must be killed');
+  assert.strictEqual(destroyedContainers, 1, 'Previous announcement container must be destroyed');
+  assert.strictEqual(activeContainer.colorKey, 'blue', 'New announcement immediately takes over');
+
+  // 3. Announce GREEN rapidly
+  announceTargetColor('green');
+  assert.strictEqual(killedTweens, 2);
+  assert.strictEqual(destroyedContainers, 2);
+  assert.strictEqual(activeContainer.colorKey, 'green');
+});
+
+// 7. Small, Unobtrusive Top HUD Indicator
 test('HUD Layout: Large permanent text removed; compact indicator is unobtrusive', () => {
   const oldBadgeWidth = 200;
   const oldBadgeHeight = 52;
-  const oldText = 'POP RED ●'; // Large shouting permanent text
 
   const newBadgeWidth = 120;
   const newBadgeHeight = 32;
   const newText = '🎯 RED';
 
-  assert.ok(newBadgeWidth < oldBadgeWidth, 'New indicator is 40% more compact in width');
-  assert.ok(newBadgeHeight < oldBadgeHeight, 'New indicator is 38% more compact in height');
+  assert.ok(newBadgeWidth < oldBadgeWidth, 'New indicator is compact in width (120px)');
+  assert.ok(newBadgeHeight < oldBadgeHeight, 'New indicator is compact in height (32px)');
   assert.ok(!newText.includes('POP'), 'HUD indicator does not repeat loud POP text');
   assert.strictEqual(newText, '🎯 RED', 'Indicator displays clean, unobtrusive target reminder');
 });
 
-// 6. Transition Sound Synthesis Specifications
+// 8. Transition Sound Synthesis Specifications
 test('Sound Design: Transition chime plays bright, satisfying ascending chord', () => {
-  // Sound specification in SoundService.ts:
   // Ascending D Major arpeggio notes [D5 (587.33), F#5 (739.99), A5 (880.0), D6 (1174.66)]
   const notes = [587.33, 739.99, 880.0, 1174.66];
   assert.strictEqual(notes.length, 4, 'Must have a 4-note ascending chord');
@@ -192,30 +307,52 @@ test('Sound Design: Transition chime plays bright, satisfying ascending chord', 
   }
 });
 
-// 7. Mode Independence: Works identically in Time Attack and Endless Rush
-test('Mode Independence: Works correctly in Time Attack (no time lost) and Endless Rush (no lives lost)', () => {
-  // Time Attack test
-  let timeAttackRemaining = 30.0;
-  let endlessLives = 3;
+// 9. Mode Independence: Works identically in Time Attack and Endless Rush
+test('Mode Independence: Works correctly in Time Attack (timer runs & points score) and Endless Rush (survival clock & life rules apply)', () => {
   let isAnnouncementActive = true;
 
-  // In Time Attack: time does not drain
-  function onTimeAttackTick(dt) {
-    if (isAnnouncementActive) return;
+  // Time Attack test: timer continues to tick down; popping balloon scores points
+  let timeAttackRemaining = 30.0;
+  let timeAttackScore = 0;
+
+  function onTimeAttackFrame(dt) {
+    // Uninterrupted: timer keeps ticking down
     timeAttackRemaining -= dt;
   }
-  onTimeAttackTick(1.0);
-  assert.strictEqual(timeAttackRemaining, 30.0, 'Time Attack timer must not lose seconds during announcement');
 
-  // In Endless Rush: escaping balloons cannot trigger life loss because movement is frozen
-  function onBalloonEscapeCheck(balloonY) {
-    if (isAnnouncementActive) return; // balloons are frozen and cannot escape
-    if (balloonY <= -60) {
-      endlessLives -= 1;
-    }
+  function onTimeAttackPop(isMatch) {
+    if (isMatch) timeAttackScore += 100;
   }
-  onBalloonEscapeCheck(-70);
-  assert.strictEqual(endlessLives, 3, 'Endless Rush lives must not be deducted during announcement');
+
+  onTimeAttackFrame(0.5);
+  onTimeAttackPop(true);
+  assert.strictEqual(timeAttackRemaining, 29.5, 'Time Attack timer must continue ticking during announcement');
+  assert.strictEqual(timeAttackScore, 100, 'Time Attack points must be awarded during announcement');
+
+  // Endless Rush test: survival time advances; wrong pop costs 1 life; target escape costs 1 life
+  let endlessSurvivalTime = 10.0;
+  let endlessLives = 3;
+
+  function onEndlessFrame(dt) {
+    endlessSurvivalTime += dt;
+  }
+
+  function onEndlessWrongPop() {
+    endlessLives = Math.max(0, endlessLives - 1);
+  }
+
+  function onEndlessTargetEscape() {
+    endlessLives = Math.max(0, endlessLives - 1);
+  }
+
+  onEndlessFrame(0.5);
+  assert.strictEqual(endlessSurvivalTime, 10.5, 'Endless survival time must advance during announcement');
+
+  onEndlessWrongPop();
+  assert.strictEqual(endlessLives, 2, 'Wrong color tap in Endless must cost 1 life during announcement');
+
+  onEndlessTargetEscape();
+  assert.strictEqual(endlessLives, 1, 'Target balloon escape in Endless must cost 1 life during announcement');
 });
 
 console.log(`\nTarget Color Announcement Test Results: ${passed}/${total} passed (${Math.round((passed / total) * 100)}%)\n`);

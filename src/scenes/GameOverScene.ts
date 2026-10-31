@@ -5,7 +5,7 @@ import { StorageService, BACKGROUND_THEMES } from '../services/StorageService';
 import { GameModals } from '../ui/GameModals';
 
 export class GameOverScene extends Phaser.Scene {
-  private stats!: GameStats;
+  public stats!: GameStats;
   private isActionTriggered: boolean = false;
 
   constructor() {
@@ -102,20 +102,26 @@ export class GameOverScene extends Phaser.Scene {
     const titleContainer = this.add.container(width / 2, height * 0.14).setDepth(10);
 
     // Mode Tag
-    const modeLabel = this.stats.mode === 'time_attack' ? '⏱️ TIME ATTACK' : '❤️ ENDLESS RUSH';
-    const tagBg = this.add.graphics();
-    tagBg.fillStyle(this.stats.mode === 'time_attack' ? 0xf43f5e : 0x0284c7, 0.9);
-    tagBg.fillRoundedRect(-90, -42, 180, 28, 14);
+    const modeConfig: Record<string, { label: string; color: number; title: string }> = {
+      time_attack: { label: '⏱️ TIME ATTACK', color: 0xf43f5e, title: "TIME'S UP!" },
+      endless: { label: '❤️ ENDLESS RUSH', color: 0x0284c7, title: 'GAME OVER!' },
+      color_chaos: { label: '🌈 COLOR CHAOS', color: 0xa855f7, title: 'CHAOS OVER!' },
+      one_life: { label: '💀 ONE LIFE', color: 0xef4444, title: 'SURVIVAL FAILED!' },
+    };
+    const currentModeInfo = modeConfig[this.stats.mode] || modeConfig.time_attack;
 
-    const tagText = this.add.text(0, -28, modeLabel, {
+    const tagBg = this.add.graphics();
+    tagBg.fillStyle(currentModeInfo.color, 0.9);
+    tagBg.fillRoundedRect(-95, -42, 190, 28, 14);
+
+    const tagText = this.add.text(0, -28, currentModeInfo.label, {
       fontFamily: "'Fredoka', sans-serif",
       fontSize: '13px',
       fontStyle: 'bold',
       color: '#ffffff',
     }).setOrigin(0.5);
 
-    const mainTitleText = this.stats.mode === 'time_attack' ? "TIME'S UP!" : 'GAME OVER!';
-    const mainTitle = this.add.text(0, 8, mainTitleText, {
+    const mainTitle = this.add.text(0, 8, currentModeInfo.title, {
       fontFamily: "'Fredoka', sans-serif",
       fontSize: '60px',
       fontStyle: 'bold',
@@ -126,13 +132,20 @@ export class GameOverScene extends Phaser.Scene {
 
     titleContainer.add([tagBg, tagText, mainTitle]);
 
-    if (this.stats.isNewBestScore || this.stats.isNewBestTime) {
+    const hasBeaten = !!this.stats.postGameSummary?.championBeaten;
+
+    if (hasBeaten || this.stats.isNewBestScore || this.stats.isNewBestTime) {
       const bestBadge = this.add.container(0, 58);
       const bg = this.add.graphics();
-      bg.fillStyle(0xf59e0b, 1);
-      bg.fillRoundedRect(-140, -18, 280, 36, 18);
+      bg.fillStyle(hasBeaten ? 0x10b981 : 0xf59e0b, 1);
+      bg.fillRoundedRect(-145, -18, 290, 36, 18);
 
-      const label = this.stats.isNewBestScore ? '🏆 NEW BEST SCORE! 🏆' : '⏱️ NEW BEST TIME! ⏱️';
+      const label = hasBeaten
+        ? '👑 CHAMPION BEATEN! 👑'
+        : this.stats.isNewBestScore
+        ? '🏆 NEW BEST SCORE! 🏆'
+        : '⏱️ NEW BEST TIME! ⏱️';
+
       const txt = this.add.text(0, 0, label, {
         fontFamily: "'Fredoka', sans-serif",
         fontSize: '17px',
@@ -166,7 +179,7 @@ export class GameOverScene extends Phaser.Scene {
   private createStatsCard(width: number, height: number): void {
     const cardY = height * 0.48;
     const cardWidth = Math.min(width * 0.88, 520);
-    const cardHeight = 380;
+    const cardHeight = 410;
 
     const card = this.add.container(width / 2, cardY).setDepth(10);
 
@@ -218,8 +231,9 @@ export class GameOverScene extends Phaser.Scene {
       return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
     };
 
-    // Rows tailored by mode
+    // Rows tailored by mode & Beat the Champion
     let rows: { label: string; value: string; color: string }[] = [];
+    const summary = this.stats.postGameSummary;
 
     if (this.stats.mode === 'time_attack') {
       rows = [
@@ -228,7 +242,21 @@ export class GameOverScene extends Phaser.Scene {
         { label: 'Golden Balloons (+2s)', value: `${this.stats.goldenPopped}`, color: '#fef08a' },
         { label: 'Max Combo Streak', value: `${this.stats.maxCombo}x`, color: '#fbbf24' },
         { label: 'Fever Modes Triggered', value: `${this.stats.feverActivations}`, color: '#f43f5e' },
-        { label: 'Personal Best Score', value: `${this.stats.highScore.toLocaleString()}`, color: '#e2e8f0' },
+      ];
+    } else if (this.stats.mode === 'color_chaos') {
+      rows = [
+        { label: 'Balloons Popped', value: `${this.stats.balloonsPopped}`, color: '#fbcfe8' },
+        { label: 'Perfect Pops (Bullseye)', value: `${this.stats.perfectPops}`, color: '#fef08a' },
+        { label: 'Golden Balloons (+2s)', value: `${this.stats.goldenPopped}`, color: '#fef08a' },
+        { label: 'Max Combo Streak', value: `${this.stats.maxCombo}x`, color: '#fbbf24' },
+        { label: 'Fever Modes Triggered', value: `${this.stats.feverActivations}`, color: '#c084fc' },
+      ];
+    } else if (this.stats.mode === 'one_life') {
+      rows = [
+        { label: 'Survival Time', value: formatTime(this.stats.survivalTime), color: '#fb7185' },
+        { label: 'Best Survival Time', value: formatTime(this.stats.bestSurvivalTime), color: '#a7f3d0' },
+        { label: 'Balloons Popped', value: `${this.stats.balloonsPopped}`, color: '#fbcfe8' },
+        { label: 'Max Combo Streak', value: `${this.stats.maxCombo}x`, color: '#fbbf24' },
       ];
     } else {
       // Endless Rush
@@ -236,14 +264,46 @@ export class GameOverScene extends Phaser.Scene {
         { label: 'Survival Time', value: formatTime(this.stats.survivalTime), color: '#38bdf8' },
         { label: 'Best Survival Time', value: formatTime(this.stats.bestSurvivalTime), color: '#a7f3d0' },
         { label: 'Balloons Popped', value: `${this.stats.balloonsPopped}`, color: '#fbcfe8' },
-        { label: 'Perfect Pops', value: `${this.stats.perfectPops}`, color: '#fef08a' },
         { label: 'Max Combo Streak', value: `${this.stats.maxCombo}x`, color: '#fbbf24' },
-        { label: 'Personal Best Score', value: `${this.stats.highScore.toLocaleString()}`, color: '#e2e8f0' },
       ];
     }
 
+    // Beat the Champion Rank & Next Opponent
+    if (summary) {
+      if (summary.updatedRank) {
+        const rankDisplay =
+          summary.previousRank && summary.previousRank !== summary.updatedRank
+            ? `#${summary.previousRank} ➔ #${summary.updatedRank} 🚀`
+            : `#${summary.updatedRank}`;
+        rows.push({
+          label: 'Leaderboard Rank',
+          value: rankDisplay,
+          color: '#fef08a',
+        });
+      }
+      if (summary.nextOpponentNickname && summary.nextOpponentScore) {
+        rows.push({
+          label: 'Next Target',
+          value: `${summary.nextOpponentNickname} (${summary.nextOpponentScore.toLocaleString()})`,
+          color: '#38bdf8',
+        });
+      } else if (summary.isCurrentLeader) {
+        rows.push({
+          label: 'Family Champion',
+          value: '👑 #1 Defended!',
+          color: '#fef08a',
+        });
+      }
+    }
+
+    rows.push({
+      label: 'Personal Best Score',
+      value: `${this.stats.highScore.toLocaleString()}`,
+      color: '#e2e8f0',
+    });
+
     rows.forEach((row, idx) => {
-      const rowY = -cardHeight / 2 + 146 + idx * 34;
+      const rowY = -cardHeight / 2 + 144 + idx * 31;
 
       const lbl = this.add.text(-cardWidth / 2 + 35, rowY, row.label, {
         fontFamily: "'Fredoka', sans-serif",
@@ -302,7 +362,7 @@ export class GameOverScene extends Phaser.Scene {
     this.add.existing(menuBtn);
   }
 
-  private openLeaderboard(): void {
+  public openLeaderboard(): void {
     SoundService.getInstance().playClick();
     GameModals.showLeaderboard(this, {
       initialMode: this.stats.mode,
@@ -396,23 +456,33 @@ export class GameOverScene extends Phaser.Scene {
     });
   }
 
-  private retryGame(): void {
+  public retryGame(): void {
     if (this.isActionTriggered) return;
     this.isActionTriggered = true;
     SoundService.getInstance().playClick();
-    this.cameras.main.fadeOut(200, 15, 23, 42);
-    this.cameras.main.once('camerafadeoutcomplete', () => {
+    let transitioned = false;
+    const doTransition = () => {
+      if (transitioned) return;
+      transitioned = true;
       this.scene.start('GameScene', { mode: this.stats.mode });
-    });
+    };
+    this.cameras.main.fadeOut(200, 15, 23, 42);
+    this.cameras.main.once('camerafadeoutcomplete', doTransition);
+    this.time.delayedCall(250, doTransition);
   }
 
-  private returnToMenu(): void {
+  public returnToMenu(): void {
     if (this.isActionTriggered) return;
     this.isActionTriggered = true;
     SoundService.getInstance().playClick();
-    this.cameras.main.fadeOut(200, 15, 23, 42);
-    this.cameras.main.once('camerafadeoutcomplete', () => {
+    let transitioned = false;
+    const doTransition = () => {
+      if (transitioned) return;
+      transitioned = true;
       this.scene.start('MenuScene');
-    });
+    };
+    this.cameras.main.fadeOut(200, 15, 23, 42);
+    this.cameras.main.once('camerafadeoutcomplete', doTransition);
+    this.time.delayedCall(250, doTransition);
   }
 }

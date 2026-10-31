@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <radialGradient id="balloonGrad" cx="35%" cy="30%" r="65%">
+      <stop offset="0%" stop-color="#fda4af"/>
+      <stop offset="35%" stop-color="#f43f5e"/>
+      <stop offset="85%" stop-color="#e11d48"/>
+      <stop offset="100%" stop-color="#9f1239"/>
+    </radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <!-- String -->
+  <path d="M32 46 Q26 53 34 58 T30 63" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/>
+  <!-- Balloon Body -->
+  <ellipse cx="32" cy="26" rx="20" ry="22" fill="url(#balloonGrad)" filter="url(#shadow)"/>
+  <!-- Specular Reflection -->
+  <ellipse cx="25" cy="18" rx="5" ry="8" transform="rotate(-25 25 18)" fill="#ffffff" opacity="0.6"/>
+  <circle cx="28" cy="12" r="2" fill="#ffffff" opacity="0.75"/>
+  <!-- Tie Knot -->
+  <polygon points="29,46 35,46 32,49" fill="#be123c"/>
+</svg>

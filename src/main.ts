@@ -30,5 +30,6 @@ const config: Phaser.Types.Core.GameConfig = {
 
 // Initialize game on window load
 window.addEventListener('DOMContentLoaded', () => {
-  new Phaser.Game(config);
+  const game = new Phaser.Game(config);
+  (window as any).__POP_RUSH_GAME__ = game;
 });
