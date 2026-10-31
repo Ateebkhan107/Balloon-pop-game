@@ -219,7 +219,7 @@ export class GameModals {
     container.add(overlay);
 
     const cardWidth = Math.min(width * 0.88, 520);
-    const cardHeight = Math.min(height * 0.75, 580);
+    const cardHeight = Math.min(height * 0.85, 660);
     const card = scene.add.graphics();
     card.fillStyle(0x1e1b4b, 0.98);
     card.lineStyle(4, 0xec4899, 1);
@@ -227,7 +227,7 @@ export class GameModals {
     card.strokeRoundedRect(width / 2 - cardWidth / 2, height / 2 - cardHeight / 2, cardWidth, cardHeight, 24);
     container.add(card);
 
-    const title = scene.add.text(width / 2, height / 2 - cardHeight / 2 + 50, 'SETTINGS', {
+    const title = scene.add.text(width / 2, height / 2 - cardHeight / 2 + 45, 'SETTINGS', {
       fontFamily: "'Fredoka', sans-serif",
       fontSize: '36px',
       fontStyle: 'bold',
@@ -237,13 +237,54 @@ export class GameModals {
     }).setOrigin(0.5);
     container.add(title);
 
-    let rowY = height / 2 - cardHeight / 2 + 120;
-    const rowSpacing = 75;
+    let rowY = height / 2 - cardHeight / 2 + 105;
+    const rowSpacing = 68;
 
-    // --- ROW 1: SOUND EFFECTS TOGGLE (100x40) ---
-    const soundLabel = scene.add.text(width / 2 - cardWidth / 2 + 40, rowY, 'Sound Effects:', {
+    // --- ROW 1: PLAYER NICKNAME (EDITABLE) ---
+    const nickLabel = scene.add.text(width / 2 - cardWidth / 2 + 35, rowY, 'Player Nickname:', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '22px',
+      fontSize: '20px',
+      color: '#ffffff',
+    }).setOrigin(0, 0.5);
+
+    const editBtn = scene.add.container(width / 2 + cardWidth / 2 - 95, rowY);
+    const editBg = scene.add.graphics();
+    editBg.fillStyle(0x6366f1, 1);
+    editBg.fillRoundedRect(-55, -18, 110, 36, 12);
+
+    const initialNick = storage.getNickname() || 'Player';
+    const displayNick = initialNick.length > 8 ? `${initialNick.substring(0, 7)}…` : initialNick;
+    const editText = scene.add.text(0, 0, `✏️ ${displayNick}`, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '15px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+    }).setOrigin(0.5);
+
+    editBtn.add([editBg, editText]);
+    editBtn.setSize(110, 36);
+    editBtn.setInteractive(new Phaser.Geom.Rectangle(0, 0, 110, 36), Phaser.Geom.Rectangle.Contains);
+    if (editBtn.input) editBtn.input.cursor = 'pointer';
+
+    editBtn.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.button !== 0 && pointer.button !== undefined) return;
+      sound.playClick();
+      GameModals.showNicknamePrompt(
+        scene,
+        (newName) => {
+          const short = newName.length > 8 ? `${newName.substring(0, 7)}…` : newName;
+          editText.setText(`✏️ ${short}`);
+        },
+        storage.getNickname() || ''
+      );
+    });
+    container.add([nickLabel, editBtn]);
+
+    // --- ROW 2: SOUND EFFECTS TOGGLE (100x40) ---
+    rowY += rowSpacing;
+    const soundLabel = scene.add.text(width / 2 - cardWidth / 2 + 35, rowY, 'Sound Effects:', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '20px',
       color: '#ffffff',
     }).setOrigin(0, 0.5);
 
@@ -706,9 +747,16 @@ export class GameModals {
 
     // 2. Main Leaderboard Card
     const cardWidth = Math.min(width * 0.94, 620);
-    const cardHeight = Math.min(height * 0.90, 880);
+    const cardHeight = Math.min(height * 0.92, 940);
     const cardX = width / 2;
     const cardY = height / 2;
+
+    const formatSurvivalTime = (seconds?: number | null): string => {
+      if (typeof seconds !== 'number' || seconds <= 0) return '--:--';
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
 
     const card = scene.add.graphics();
     card.fillStyle(0x1e1b4b, 0.98);
@@ -728,6 +776,37 @@ export class GameModals {
       strokeThickness: 5,
     }).setOrigin(0.5);
     container.add(title);
+
+    // Refresh button (🔄) top right
+    const refreshBtnX = cardX + cardWidth / 2 - 76;
+    const refreshBtnY = headerY;
+    const refreshBtn = scene.add.container(refreshBtnX, refreshBtnY);
+    const refreshBg = scene.add.circle(0, 0, 18, 0x334155, 0.9);
+    refreshBg.setStrokeStyle(1.5, 0x94a3b8);
+    const refreshText = scene.add.text(0, -1, '🔄', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '16px',
+    }).setOrigin(0.5);
+    refreshBtn.add([refreshBg, refreshText]);
+    refreshBtn.setSize(36, 36);
+    refreshBtn.setInteractive(new Phaser.Geom.Circle(18, 18, 18), Phaser.Geom.Circle.Contains);
+    if (refreshBtn.input) refreshBtn.input.cursor = 'pointer';
+
+    refreshBtn.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (p.button !== 0 && p.button !== undefined) return;
+      sound.playClick();
+      scene.tweens.add({
+        targets: refreshText,
+        angle: 360,
+        duration: 400,
+        ease: 'Cubic.easeOut',
+        onComplete: () => {
+          refreshText.setAngle(0);
+        },
+      });
+      refreshList();
+    });
+    container.add(refreshBtn);
 
     // Close button (X) top right
     const closeBtnX = cardX + cardWidth / 2 - 32;
@@ -860,6 +939,7 @@ export class GameModals {
       currentMode = 'time_attack';
       sound.playClick();
       updateTabStyles();
+      renderTableHeaders();
       refreshList();
     });
 
@@ -869,57 +949,81 @@ export class GameModals {
       currentMode = 'endless';
       sound.playClick();
       updateTabStyles();
+      renderTableHeaders();
       refreshList();
     });
 
-    // 5. Table Header Bar
+    // 5. Table Header Bar (Dynamic for Time Attack vs Endless Rush)
     const tableHeaderY = tabsY + 36;
-    const colRankX = cardX - cardWidth / 2 + 40;
-    const colPlayerX = cardX - cardWidth / 2 + 130;
-    const colScoreX = cardX + cardWidth / 2 - 40;
+    const tableHeaderContainer = scene.add.container(0, 0);
+    container.add(tableHeaderContainer);
 
-    const rankHeader = scene.add.text(colRankX, tableHeaderY, 'RANK', {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '13px',
-      fontStyle: 'bold',
-      color: '#94a3b8',
-      letterSpacing: 1,
-    }).setOrigin(0, 0.5);
+    const colRankX = cardX - cardWidth / 2 + 32;
+    const getColPlayerX = () => cardX - cardWidth / 2 + (currentMode === 'endless' ? 116 : 126);
+    const colSurvivalX = cardX + cardWidth / 2 - 145;
+    const colScoreX = cardX + cardWidth / 2 - 32;
 
-    const playerHeader = scene.add.text(colPlayerX, tableHeaderY, 'PLAYER', {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '13px',
-      fontStyle: 'bold',
-      color: '#94a3b8',
-      letterSpacing: 1,
-    }).setOrigin(0, 0.5);
+    const renderTableHeaders = () => {
+      tableHeaderContainer.removeAll(true);
 
-    const scoreHeader = scene.add.text(colScoreX, tableHeaderY, 'BEST SCORE', {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '13px',
-      fontStyle: 'bold',
-      color: '#94a3b8',
-      letterSpacing: 1,
-    }).setOrigin(1, 0.5);
+      const rankHeader = scene.add.text(colRankX, tableHeaderY, 'RANK', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#94a3b8',
+        letterSpacing: 1,
+      }).setOrigin(0, 0.5);
 
-    const tableDiv = scene.add.graphics();
-    tableDiv.lineStyle(1, 0x334155, 1);
-    tableDiv.strokeLineShape(
-      new Phaser.Geom.Line(cardX - cardWidth / 2 + 25, tableHeaderY + 16, cardX + cardWidth / 2 - 25, tableHeaderY + 16)
-    );
-    container.add([rankHeader, playerHeader, scoreHeader, tableDiv]);
+      const playerHeader = scene.add.text(getColPlayerX(), tableHeaderY, 'PLAYER', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#94a3b8',
+        letterSpacing: 1,
+      }).setOrigin(0, 0.5);
+
+      tableHeaderContainer.add([rankHeader, playerHeader]);
+
+      if (currentMode === 'endless') {
+        const survivalHeader = scene.add.text(colSurvivalX, tableHeaderY, 'SURVIVAL', {
+          fontFamily: "'Fredoka', sans-serif",
+          fontSize: '13px',
+          fontStyle: 'bold',
+          color: '#94a3b8',
+          letterSpacing: 1,
+        }).setOrigin(0.5, 0.5);
+        tableHeaderContainer.add(survivalHeader);
+      }
+
+      const scoreHeader = scene.add.text(colScoreX, tableHeaderY, 'BEST SCORE', {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#94a3b8',
+        letterSpacing: 1,
+      }).setOrigin(1, 0.5);
+      tableHeaderContainer.add(scoreHeader);
+
+      const tableDiv = scene.add.graphics();
+      tableDiv.lineStyle(1, 0x334155, 1);
+      tableDiv.strokeLineShape(
+        new Phaser.Geom.Line(cardX - cardWidth / 2 + 25, tableHeaderY + 16, cardX + cardWidth / 2 - 25, tableHeaderY + 16)
+      );
+      tableHeaderContainer.add(tableDiv);
+    };
+    renderTableHeaders();
 
     // 6. Dynamic List Rows Container
     const rowsContainer = scene.add.container(0, 0);
     container.add(rowsContainer);
 
     // 7. Pinned Player Rank Footer
-    const footerY = cardY + cardHeight / 2 - 120;
+    const footerY = cardY + cardHeight / 2 - 110;
     const footerBox = scene.add.container(cardX, footerY);
     const footerBg = scene.add.graphics();
     const footerText = scene.add.text(0, 0, '', {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '16px',
+      fontSize: '15px',
       fontStyle: 'bold',
       color: '#ffffff',
     }).setOrigin(0.5);
@@ -930,30 +1034,35 @@ export class GameModals {
       footerBg.clear();
       const storage = StorageService.getInstance();
       const localScore = currentMode === 'time_attack' ? storage.getTimeAttackHighScore() : storage.getEndlessHighScore();
+      const localSurvival = currentMode === 'endless' ? storage.getEndlessBestTime() : null;
       const name = leaderboardService.getNickname();
       const boxW = cardWidth - 50;
       const boxH = 46;
+
+      const survivalPart = currentMode === 'endless' && (entry?.survivalTime || localSurvival)
+        ? `  •  ⏱️ ${formatSurvivalTime(entry?.survivalTime || localSurvival)}`
+        : '';
 
       if (rank === 1) {
         footerBg.fillStyle(0x78350f, 0.95);
         footerBg.lineStyle(2, 0xf59e0b, 1);
         footerBg.fillRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
         footerBg.strokeRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
-        footerText.setText(`👑 YOUR RANK: #1 (LEADER!)  •  ${name}  •  ${(entry?.score || localScore).toLocaleString()} pts`);
+        footerText.setText(`👑 YOUR RANK: #1 (LEADER!)  •  ${name}  •  ${(entry?.score || localScore).toLocaleString()} pts${survivalPart}`);
         footerText.setColor('#fef08a');
       } else if (rank && rank > 1) {
         footerBg.fillStyle(0x312e81, 0.95);
         footerBg.lineStyle(2, 0x818cf8, 1);
         footerBg.fillRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
         footerBg.strokeRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
-        footerText.setText(`YOUR RANK: #${rank}  •  ${name}  •  ${(entry?.score || localScore).toLocaleString()} pts`);
+        footerText.setText(`YOUR RANK: #${rank}  •  ${name}  •  ${(entry?.score || localScore).toLocaleString()} pts${survivalPart}`);
         footerText.setColor('#ffffff');
       } else if (localScore > 0) {
         footerBg.fillStyle(0x1e293b, 0.95);
         footerBg.lineStyle(1.5, 0x64748b, 1);
         footerBg.fillRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
         footerBg.strokeRoundedRect(-boxW / 2, -boxH / 2, boxW, boxH, 12);
-        footerText.setText(`YOUR BEST: ${localScore.toLocaleString()} pts  •  Play another round to rank!`);
+        footerText.setText(`YOUR BEST: ${localScore.toLocaleString()} pts${survivalPart}  •  Play another round to rank!`);
         footerText.setColor('#cbd5e1');
       } else {
         footerBg.fillStyle(0x1e293b, 0.95);
@@ -966,7 +1075,7 @@ export class GameModals {
     };
 
     // 8. Bottom Action Navigation Buttons
-    const actionY = cardY + cardHeight / 2 - 50;
+    const actionY = cardY + cardHeight / 2 - 48;
 
     if (options?.fromGameOver) {
       // 1. PLAY AGAIN button
@@ -1090,16 +1199,54 @@ export class GameModals {
 
       updateFooter(result.currentUserRank, result.currentUserEntry);
 
+      // Connection error state
+      if (!result.success && result.entries.length === 0) {
+        const errY = tableHeaderY + 110;
+        const errIcon = scene.add.text(cardX, errY - 24, '📡', { fontSize: '32px' }).setOrigin(0.5);
+        const errText = scene.add.text(cardX, errY + 16, 'Could not connect to Leaderboard.\nPlease check your network connection.', {
+          fontFamily: "'Fredoka', sans-serif",
+          fontSize: '16px',
+          fontStyle: 'bold',
+          color: '#fb7185',
+          align: 'center',
+          lineSpacing: 4,
+        }).setOrigin(0.5);
+
+        const retryBtn = scene.add.container(cardX, errY + 68);
+        const rBg = scene.add.graphics();
+        rBg.fillStyle(0x6366f1, 1);
+        rBg.fillRoundedRect(-65, -18, 130, 36, 12);
+        const rTxt = scene.add.text(0, 0, 'RETRY 🔄', {
+          fontFamily: "'Fredoka', sans-serif",
+          fontSize: '15px',
+          fontStyle: 'bold',
+          color: '#ffffff',
+        }).setOrigin(0.5);
+        retryBtn.add([rBg, rTxt]);
+        retryBtn.setSize(130, 36);
+        retryBtn.setInteractive(new Phaser.Geom.Rectangle(0, 0, 130, 36), Phaser.Geom.Rectangle.Contains);
+        if (retryBtn.input) retryBtn.input.cursor = 'pointer';
+
+        retryBtn.on('pointerdown', (p: Phaser.Input.Pointer) => {
+          if (p.button !== 0 && p.button !== undefined) return;
+          sound.playClick();
+          refreshList();
+        });
+
+        rowsContainer.add([errIcon, errText, retryBtn]);
+        return;
+      }
+
       // Offline warning indicator banner if applicable
       if (result.isOfflineFallback) {
-        const warnY = tableHeaderY + 36;
+        const warnY = tableHeaderY + 34;
         const warnBg = scene.add.graphics();
         warnBg.fillStyle(0x7c2d12, 0.85);
         warnBg.lineStyle(1, 0xf97316, 1);
-        warnBg.fillRoundedRect(cardX - (cardWidth - 50) / 2, warnY - 14, cardWidth - 50, 32, 8);
-        warnBg.strokeRoundedRect(cardX - (cardWidth - 50) / 2, warnY - 14, cardWidth - 50, 32, 8);
+        warnBg.fillRoundedRect(cardX - (cardWidth - 50) / 2, warnY - 14, cardWidth - 50, 28, 8);
+        warnBg.strokeRoundedRect(cardX - (cardWidth - 50) / 2, warnY - 14, cardWidth - 50, 28, 8);
 
-        const warnText = scene.add.text(cardX, warnY + 2, '📡 Offline Mode: Displaying saved local high score.', {
+        const warnText = scene.add.text(cardX, warnY, '📡 Offline Mode: Displaying saved local high score.', {
           fontFamily: "'Fredoka', sans-serif",
           fontSize: '13px',
           fontStyle: 'bold',
@@ -1122,10 +1269,11 @@ export class GameModals {
         return;
       }
 
-      // Display top 8 entries
-      const startRowY = result.isOfflineFallback ? tableHeaderY + 68 : tableHeaderY + 38;
-      const rowHeight = 44;
-      const maxRows = Math.min(result.entries.length, 8);
+      // Display top 10 players
+      const startRowY = result.isOfflineFallback ? tableHeaderY + 64 : tableHeaderY + 34;
+      const rowHeight = 38;
+      const maxRows = Math.min(result.entries.length, 10);
+      const playerColX = getColPlayerX();
 
       for (let i = 0; i < maxRows; i++) {
         const entry = result.entries[i];
@@ -1140,24 +1288,24 @@ export class GameModals {
         if (isFirst) {
           rowBg.fillStyle(0x78350f, 0.7);
           rowBg.lineStyle(1.5, 0xf59e0b, 1);
-          rowBg.fillRoundedRect(cardX - rowW / 2, rowY - 18, rowW, 36, 10);
-          rowBg.strokeRoundedRect(cardX - rowW / 2, rowY - 18, rowW, 36, 10);
+          rowBg.fillRoundedRect(cardX - rowW / 2, rowY - 16, rowW, 32, 10);
+          rowBg.strokeRoundedRect(cardX - rowW / 2, rowY - 16, rowW, 32, 10);
         } else if (isCurrent) {
           rowBg.fillStyle(0x1e3a8a, 0.7);
           rowBg.lineStyle(1.5, 0x38bdf8, 1);
-          rowBg.fillRoundedRect(cardX - rowW / 2, rowY - 18, rowW, 36, 10);
-          rowBg.strokeRoundedRect(cardX - rowW / 2, rowY - 18, rowW, 36, 10);
+          rowBg.fillRoundedRect(cardX - rowW / 2, rowY - 16, rowW, 32, 10);
+          rowBg.strokeRoundedRect(cardX - rowW / 2, rowY - 16, rowW, 32, 10);
         } else if (i % 2 === 1) {
-          rowBg.fillStyle(0x312e81, 0.4);
-          rowBg.fillRoundedRect(cardX - rowW / 2, rowY - 18, rowW, 36, 10);
+          rowBg.fillStyle(0x312e81, 0.35);
+          rowBg.fillRoundedRect(cardX - rowW / 2, rowY - 16, rowW, 32, 10);
         }
         rowsContainer.add(rowBg);
 
-        // Rank label (Crown for 1st place)
+        // Rank label (🥇🥈🥉 for top 3)
         let rankStr = `#${entry.rank}`;
         let rankColor = '#cbd5e1';
         if (entry.rank === 1) {
-          rankStr = '👑 #1';
+          rankStr = '🥇 #1';
           rankColor = '#fef08a';
         } else if (entry.rank === 2) {
           rankStr = '🥈 #2';
@@ -1169,24 +1317,44 @@ export class GameModals {
 
         const rankText = scene.add.text(colRankX, rowY, rankStr, {
           fontFamily: "'Fredoka', sans-serif",
-          fontSize: '17px',
+          fontSize: '16px',
           fontStyle: 'bold',
           color: rankColor,
         }).setOrigin(0, 0.5);
 
-        // Player name + (YOU) badge
-        const nickDisplay = entry.nickname.length > 13 ? `${entry.nickname.substring(0, 12)}…` : entry.nickname;
-        const playerText = scene.add.text(colPlayerX, rowY, nickDisplay, {
+        // Player name
+        const maxNickLen = currentMode === 'endless' ? 9 : 13;
+        const nickDisplay = entry.nickname.length > maxNickLen ? `${entry.nickname.substring(0, maxNickLen - 1)}…` : entry.nickname;
+        const playerText = scene.add.text(playerColX, rowY, nickDisplay, {
           fontFamily: "'Fredoka', sans-serif",
-          fontSize: '17px',
+          fontSize: '16px',
           fontStyle: 'bold',
           color: isFirst ? '#fef08a' : (isCurrent ? '#38bdf8' : '#ffffff'),
         }).setOrigin(0, 0.5);
 
-        if (isCurrent) {
-          const youBadge = scene.add.text(colPlayerX + playerText.width + 8, rowY, 'YOU', {
+        rowsContainer.add([rankText, playerText]);
+
+        let nextBadgeX = playerColX + playerText.width + 8;
+
+        // 👑 Family Champion badge for Rank 1
+        if (isFirst) {
+          const champBadge = scene.add.text(nextBadgeX, rowY, '👑 Family Champion', {
             fontFamily: "'Fredoka', sans-serif",
-            fontSize: '11px',
+            fontSize: '10px',
+            fontStyle: 'bold',
+            color: '#78350f',
+            backgroundColor: '#fef08a',
+            padding: { left: 5, right: 5, top: 2, bottom: 2 },
+          }).setOrigin(0, 0.5);
+          rowsContainer.add(champBadge);
+          nextBadgeX += champBadge.width + 6;
+        }
+
+        // YOU badge for current user
+        if (isCurrent) {
+          const youBadge = scene.add.text(nextBadgeX, rowY, 'YOU', {
+            fontFamily: "'Fredoka', sans-serif",
+            fontSize: '10px',
             fontStyle: 'bold',
             color: '#4ade80',
             backgroundColor: '#14532d',
@@ -1195,16 +1363,27 @@ export class GameModals {
           rowsContainer.add(youBadge);
         }
 
-        // Score
+        // Endless Rush: Survival time column
+        if (currentMode === 'endless') {
+          const survText = scene.add.text(colSurvivalX, rowY, formatSurvivalTime(entry.survivalTime), {
+            fontFamily: "'Fredoka', sans-serif",
+            fontSize: '15px',
+            fontStyle: 'bold',
+            color: isFirst ? '#fef08a' : '#cbd5e1',
+          }).setOrigin(0.5, 0.5);
+          rowsContainer.add(survText);
+        }
+
+        // Score column
         const scoreStr = entry.score.toLocaleString();
         const scoreText = scene.add.text(colScoreX, rowY, scoreStr, {
           fontFamily: "'Fredoka', sans-serif",
-          fontSize: '18px',
+          fontSize: '17px',
           fontStyle: 'bold',
           color: isFirst ? '#fef08a' : '#38bdf8',
         }).setOrigin(1, 0.5);
 
-        rowsContainer.add([rankText, playerText, scoreText]);
+        rowsContainer.add(scoreText);
       }
     };
 

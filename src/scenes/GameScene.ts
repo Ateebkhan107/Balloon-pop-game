@@ -34,13 +34,14 @@ export class GameScene extends Phaser.Scene {
   // Game State
   private score: number = 0;
   private displayedScore: number = 0;
-  private timeLeft: number = 30; // Time Attack
+  private timeLeft: number = 30; // Time Attack countdown
   private survivalTime: number = 0; // Endless
+  private elapsedGameplayTime: number = 0; // Elapsed active gameplay time for progressive difficulty
+  private currentDifficultyTier: number = 1; // Current progression tier
   private lives: number = 3; // Endless
   private isPlaying: boolean = false;
   private isPaused: boolean = false;
   private isEnding: boolean = false;
-  private isRushModeAnnounced: boolean = false;
 
   // Combo & Fever
   private combo: number = 1;
@@ -54,8 +55,10 @@ export class GameScene extends Phaser.Scene {
   private colorRushManager!: ColorRushManager;
   private targetColorBadge!: Phaser.GameObjects.Container;
   private targetColorBg!: Phaser.GameObjects.Graphics;
+  private targetColorDot!: Phaser.GameObjects.Graphics;
   private targetColorText!: Phaser.GameObjects.Text;
   private targetColorProgressRing!: Phaser.GameObjects.Graphics;
+  private isAnnouncementActive: boolean = false;
 
   // Freeze Mechanic
   private isFreezeActive: boolean = false;
@@ -105,11 +108,13 @@ export class GameScene extends Phaser.Scene {
     this.displayedScore = 0;
     this.timeLeft = 30;
     this.survivalTime = 0;
+    this.elapsedGameplayTime = 0;
+    this.currentDifficultyTier = 1;
     this.lives = 3;
     this.isPlaying = false;
     this.isPaused = false;
     this.isEnding = false;
-    this.isRushModeAnnounced = false;
+    this.isAnnouncementActive = false;
     this.combo = 1;
     this.maxCombo = 1;
     this.comboTimer = 0;
@@ -126,7 +131,7 @@ export class GameScene extends Phaser.Scene {
     this.heartSprites = [];
 
     // Initialize Managers
-    const switchInterval = this.mode === 'time_attack' ? 6.5 : 7.5;
+    const switchInterval = this.mode === 'time_attack' ? 7.2 : 7.5;
     this.colorRushManager = new ColorRushManager(switchInterval);
     this.feverManager.reset();
 
@@ -164,27 +169,26 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupColorRushCallbacks(): void {
-    const sound = SoundService.getInstance();
-
     this.colorRushManager.setCallbacks(
       (newColor: BalloonTheme, _prevColor: BalloonTheme) => {
-        sound.playColorSwitch();
         this.updateTargetColorBadge(newColor);
-        this.announceColorSwitch(newColor);
+        this.announceTargetColor(newColor, false);
         // Reset counter so at least minDistractorsBetweenTargets distractors spawn first.
         // This ensures the target color NEVER spawns in a group or immediately in a bunch!
         this.spawnsSinceTarget = 0;
       },
       () => {
         // Warning 1 second before switch: subtle pulse on badge
-        this.tweens.add({
-          targets: this.targetColorBadge,
-          scaleX: 1.12,
-          scaleY: 1.12,
-          duration: 200,
-          yoyo: true,
-          repeat: 2,
-        });
+        if (!this.isAnnouncementActive && this.targetColorBadge) {
+          this.tweens.add({
+            targets: this.targetColorBadge,
+            scaleX: 1.12,
+            scaleY: 1.12,
+            duration: 200,
+            yoyo: true,
+            repeat: 2,
+          });
+        }
       }
     );
   }
@@ -359,107 +363,220 @@ export class GameScene extends Phaser.Scene {
 
   private createTargetColorBadge(width: number, parent: Phaser.GameObjects.Container): void {
     const activeTheme = this.colorRushManager.getActiveTheme();
-    this.targetColorBadge = this.add.container(width / 2 - 30, 52);
+    // Compact, unobtrusive indicator in HUD center
+    this.targetColorBadge = this.add.container(width / 2 - 25, 52);
 
     this.targetColorBg = this.add.graphics();
+    this.targetColorDot = this.add.graphics();
     this.targetColorProgressRing = this.add.graphics();
 
-    this.targetColorText = this.add.text(0, 0, `POP ${activeTheme.label} ${activeTheme.symbol}`, {
+    this.targetColorText = this.add.text(6, -1, `🎯 ${activeTheme.label}`, {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '22px',
+      fontSize: '14px',
       fontStyle: 'bold',
-      color: '#ffffff',
-      stroke: '#0f172a',
-      strokeThickness: 5,
+      color: '#f8fafc',
+      letterSpacing: 1,
     }).setOrigin(0.5);
 
-    this.targetColorBadge.add([this.targetColorBg, this.targetColorProgressRing, this.targetColorText]);
+    this.targetColorBadge.add([this.targetColorBg, this.targetColorDot, this.targetColorProgressRing, this.targetColorText]);
     parent.add(this.targetColorBadge);
 
     this.updateTargetColorBadge(activeTheme);
   }
 
   private updateTargetColorBadge(theme: BalloonTheme): void {
+    if (!this.targetColorBg || !this.targetColorDot || !this.targetColorText) return;
     this.targetColorBg.clear();
+    this.targetColorDot.clear();
 
-    const badgeWidth = 200;
-    const badgeHeight = 52;
+    const badgeWidth = 120;
+    const badgeHeight = 32;
 
-    // Outer glow & filled pill
-    this.targetColorBg.fillStyle(theme.hexNum, 0.95);
-    this.targetColorBg.fillRoundedRect(-badgeWidth / 2, -badgeHeight / 2, badgeWidth, badgeHeight, 26);
-    this.targetColorBg.lineStyle(3, 0xffffff, 1);
-    this.targetColorBg.strokeRoundedRect(-badgeWidth / 2, -badgeHeight / 2, badgeWidth, badgeHeight, 26);
+    // Small, unobtrusive dark translucent pill with color-matched accent border
+    this.targetColorBg.fillStyle(0x0f172a, 0.88);
+    this.targetColorBg.fillRoundedRect(-badgeWidth / 2, -badgeHeight / 2, badgeWidth, badgeHeight, 16);
+    this.targetColorBg.lineStyle(2, theme.hexNum, 0.9);
+    this.targetColorBg.strokeRoundedRect(-badgeWidth / 2, -badgeHeight / 2, badgeWidth, badgeHeight, 16);
 
-    this.targetColorText.setText(`POP ${theme.label} ${theme.symbol}`);
+    // Glowing color dot indicator
+    this.targetColorDot.fillStyle(theme.hexNum, 1);
+    this.targetColorDot.fillCircle(-badgeWidth / 2 + 16, -1, 5.5);
 
-    // Subtle scale punch on color change
-    this.tweens.add({
-      targets: this.targetColorBadge,
-      scaleX: 1.15,
-      scaleY: 1.15,
-      duration: 140,
-      yoyo: true,
-      ease: 'Back.easeOut',
-    });
+    // Clean, unobtrusive label (e.g. "🎯 RED")
+    this.targetColorText.setText(`🎯 ${theme.label}`);
+
+    this.updateTargetColorProgress();
   }
 
   private updateTargetColorProgress(): void {
     if (!this.targetColorProgressRing || !this.colorRushManager) return;
     this.targetColorProgressRing.clear();
 
-    const badgeWidth = 200;
-    const badgeHeight = 52;
+    const activeTheme = this.colorRushManager.getActiveTheme();
+    const badgeWidth = 120;
+    const badgeHeight = 32;
     const progress = this.colorRushManager.getProgress(); // 0 -> 1
 
-    const barWidth = badgeWidth - 36;
+    const barWidth = badgeWidth - 26;
     const currentW = Math.max(0, barWidth * (1 - progress));
 
-    // Subtle dark track
-    this.targetColorProgressRing.fillStyle(0x0f172a, 0.5);
-    this.targetColorProgressRing.fillRoundedRect(-barWidth / 2, badgeHeight / 2 - 8, barWidth, 4, 2);
+    // Subtle dark countdown track at bottom of indicator
+    this.targetColorProgressRing.fillStyle(0x334155, 0.6);
+    this.targetColorProgressRing.fillRoundedRect(-barWidth / 2, badgeHeight / 2 - 5, barWidth, 3, 1.5);
 
-    // Dynamic bright timer bar
-    this.targetColorProgressRing.fillStyle(0xffffff, 0.9);
-    this.targetColorProgressRing.fillRoundedRect(-barWidth / 2, badgeHeight / 2 - 8, currentW, 4, 2);
+    // Dynamic bright timer bar matching active color
+    this.targetColorProgressRing.fillStyle(activeTheme.hexNum, 0.95);
+    this.targetColorProgressRing.fillRoundedRect(-barWidth / 2, badgeHeight / 2 - 5, currentW, 3, 1.5);
   }
 
-  private announceColorSwitch(theme: BalloonTheme): void {
+  /**
+   * Displays the large animated arcade "POP {COLOR}!" announcement in the CENTER
+   * of the gameplay screen. Briefly pauses balloon movement, timers, and scoring
+   * so the player can read the new color fairly, then resumes automatically.
+   */
+  private announceTargetColor(theme: BalloonTheme, isGameStart: boolean = false): void {
     const { width, height } = this.cameras.main;
-    const banner = this.add.container(width / 2, height * 0.28).setDepth(150);
+    const sound = SoundService.getInstance();
+    const settings = StorageService.getInstance().getSettings();
 
-    const bg = this.add.graphics();
-    bg.fillStyle(theme.hexNum, 0.92);
-    bg.fillRoundedRect(-160, -26, 320, 52, 26);
-    bg.lineStyle(3, 0xffffff, 1);
-    bg.strokeRoundedRect(-160, -26, 320, 52, 26);
+    // 1. Pause gameplay movement & scoring during announcement
+    this.isAnnouncementActive = true;
 
-    const txt = this.add.text(0, 0, `TARGET: ${theme.label} ${theme.symbol}`, {
+    // 2. Play satisfying transition sound
+    sound.playColorAnnouncement();
+
+    // 3. Keep top HUD indicator subtle while center announcement is front-and-center
+    if (this.targetColorBadge) {
+      this.targetColorBadge.setAlpha(0.35);
+    }
+
+    // 4. Center Announcement Container
+    const announcement = this.add.container(width / 2, height * 0.46).setDepth(250);
+
+    const cardWidth = Math.min(width * 0.88, 420);
+    const cardHeight = 136;
+
+    // Layer 1: Dark outer glow / shadow
+    const shadow = this.add.graphics();
+    shadow.fillStyle(0x0f172a, 0.7);
+    shadow.fillRoundedRect(-cardWidth / 2 - 4, -cardHeight / 2 - 4, cardWidth + 8, cardHeight + 8, 30);
+
+    // Layer 2: Main vibrant color plate
+    const plate = this.add.graphics();
+    plate.fillStyle(theme.hexNum, 0.96);
+    plate.fillRoundedRect(-cardWidth / 2, -cardHeight / 2, cardWidth, cardHeight, 26);
+    plate.lineStyle(4, 0xffffff, 1);
+    plate.strokeRoundedRect(-cardWidth / 2, -cardHeight / 2, cardWidth, cardHeight, 26);
+
+    // Header Kicker
+    const kickerText = isGameStart ? '🎯 GET READY!' : '🔄 NEW TARGET COLOR!';
+    const kicker = this.add.text(0, -cardHeight / 2 + 22, kickerText, {
       fontFamily: "'Fredoka', sans-serif",
-      fontSize: '24px',
+      fontSize: '15px',
+      fontStyle: 'bold',
+      color: '#fef08a',
+      stroke: '#0f172a',
+      strokeThickness: 4,
+      letterSpacing: 2,
+    }).setOrigin(0.5);
+
+    // Main Large "POP {COLOR}!" Text
+    const mainTitle = this.add.text(0, 4, `POP ${theme.label}!`, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '52px',
+      fontStyle: 'bold',
+      color: '#ffffff',
+      stroke: '#0f172a',
+      strokeThickness: 10,
+    }).setOrigin(0.5);
+
+    // Bottom Subtitle Hint
+    const subtitle = this.add.text(0, cardHeight / 2 - 22, `${theme.symbol} ONLY POP ${theme.label} BALLOONS ${theme.symbol}`, {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: '14px',
       fontStyle: 'bold',
       color: '#ffffff',
       stroke: '#0f172a',
       strokeThickness: 4,
     }).setOrigin(0.5);
 
-    banner.add([bg, txt]);
-    banner.setScale(0.5);
+    announcement.add([shadow, plate, kicker, mainTitle, subtitle]);
 
+    // 5. Sparkle Particle Burst
+    if (!settings.reducedMotion) {
+      const colors = [theme.hexNum, 0xffffff, 0xfef08a];
+      for (let i = 0; i < 14; i++) {
+        const angle = (i / 14) * Math.PI * 2;
+        const dist = Phaser.Math.Between(130, 200);
+        const p = this.add.sprite(width / 2, height * 0.46, 'particle_star');
+        p.setTint(colors[i % colors.length]);
+        p.setScale(Phaser.Math.FloatBetween(0.5, 0.85));
+        p.setDepth(251);
+
+        this.tweens.add({
+          targets: p,
+          x: width / 2 + Math.cos(angle) * dist,
+          y: height * 0.46 + Math.sin(angle) * dist * 0.65,
+          alpha: 0,
+          scaleX: 0.1,
+          scaleY: 0.1,
+          duration: 550,
+          ease: 'Power2',
+          onComplete: () => p.destroy(),
+        });
+      }
+    }
+
+    // 6. Smooth Arcade Zoom-in Pop Animation & Auto-resume
+    const reduced = settings.reducedMotion;
+    announcement.setScale(reduced ? 1 : 0.2);
+    announcement.setAlpha(0);
+
+    // Phase 1: Satisfying zoom-in pop
     this.tweens.add({
-      targets: banner,
-      scaleX: 1.1,
-      scaleY: 1.1,
-      duration: 220,
+      targets: announcement,
+      scaleX: reduced ? 1 : 1.15,
+      scaleY: reduced ? 1 : 1.15,
+      alpha: 1,
+      duration: reduced ? 140 : 220,
       ease: 'Back.easeOut',
       onComplete: () => {
+        // Phase 2: Settle to normal scale
         this.tweens.add({
-          targets: banner,
-          alpha: 0,
-          y: height * 0.25,
-          duration: 350,
-          delay: 350,
-          onComplete: () => banner.destroy(),
+          targets: announcement,
+          scaleX: 1.0,
+          scaleY: 1.0,
+          duration: reduced ? 90 : 120,
+          ease: 'Sine.easeInOut',
+          onComplete: () => {
+            // Phase 3: Hold for reading (~400ms), then smoothly zoom up & fade out
+            this.tweens.add({
+              targets: announcement,
+              alpha: 0,
+              scaleX: reduced ? 1 : 1.22,
+              scaleY: reduced ? 1 : 1.22,
+              duration: 250,
+              delay: 420,
+              ease: 'Cubic.easeIn',
+              onComplete: () => {
+                announcement.destroy();
+                // Resume gameplay automatically
+                this.isAnnouncementActive = false;
+
+                // Restore & gently punch top indicator into focus
+                if (this.targetColorBadge) {
+                  this.tweens.add({
+                    targets: this.targetColorBadge,
+                    alpha: 1,
+                    scaleX: 1.12,
+                    scaleY: 1.12,
+                    duration: 140,
+                    yoyo: true,
+                  });
+                }
+              },
+            });
+          },
         });
       },
     });
@@ -608,7 +725,7 @@ export class GameScene extends Phaser.Scene {
 
   private startCountdown(width: number, height: number): void {
     const sound = SoundService.getInstance();
-    const countSeq = ['3', '2', '1', 'POP!'];
+    const countSeq = ['3', '2', '1'];
     let step = 0;
 
     const countText = this.add.text(width / 2, height / 2, countSeq[0], {
@@ -624,6 +741,7 @@ export class GameScene extends Phaser.Scene {
       if (step >= countSeq.length) {
         countText.destroy();
         this.isPlaying = true;
+        this.announceTargetColor(this.colorRushManager.getActiveTheme(), true);
         return;
       }
 
@@ -632,7 +750,7 @@ export class GameScene extends Phaser.Scene {
       countText.setScale(0.3);
       countText.setAlpha(1);
 
-      sound.playCountdown(val === 'POP!');
+      sound.playCountdown(val === '1');
 
       this.tweens.add({
         targets: countText,
@@ -668,7 +786,7 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on('gameobjectdown', (pointer: Phaser.Input.Pointer, gameObject: Phaser.GameObjects.GameObject) => {
       if (pointer.button !== 0 && pointer.button !== undefined) return;
-      if (!this.isPlaying || this.isPaused || this.isEnding) return;
+      if (!this.isPlaying || this.isPaused || this.isEnding || this.isAnnouncementActive) return;
       if (gameObject instanceof Balloon) {
         this.handleBalloonPop(gameObject, pointer);
       }
@@ -676,7 +794,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleBalloonPop(balloon: Balloon, pointer?: Phaser.Input.Pointer): void {
-    if (balloon.isPopped || !this.isPlaying || this.isPaused || this.isEnding) return;
+    if (balloon.isPopped || !this.isPlaying || this.isPaused || this.isEnding || this.isAnnouncementActive) return;
 
     const sound = SoundService.getInstance();
     const settings = StorageService.getInstance().getSettings();
@@ -685,17 +803,21 @@ export class GameScene extends Phaser.Scene {
     const type = balloon.balloonType;
     const currentTime = this.time.now;
 
-    // Check Accuracy-based "Perfect Pop" (distance from visual body center at y - 25)
+    // Check Accuracy-based "Perfect Pop" (distance from visual body center at y - 25 * scale)
     let isPerfect = false;
+    const balloonScale = balloon.targetScale || 1.0;
     if (pointer) {
-      const dist = Phaser.Math.Distance.Between(pointer.worldX, pointer.worldY, bx, by - 25);
-      if (dist <= 22) {
+      const visualCenterY = by - 25 * balloonScale;
+      const perfectRadius = 22 * balloonScale;
+      const dist = Phaser.Math.Distance.Between(pointer.worldX, pointer.worldY, bx, visualCenterY);
+      if (dist <= Math.max(16, perfectRadius)) {
         isPerfect = true;
       }
     }
 
     const feverActive = this.feverManager.isActive();
     const feverMultiplier = feverActive ? 2 : 1;
+    const swiftBonus = balloon.isSmall ? 50 : 0;
 
     // --- 1. SPECIAL BALLOONS (All specials pop on tap) ---
     if (type === 'golden') {
@@ -711,7 +833,11 @@ export class GameScene extends Phaser.Scene {
         this.feverManager.addCharge(25);
       }
 
-      const earned = (balloon.scoreValue + (isPerfect ? 50 : 0)) * this.combo * feverMultiplier;
+      if (balloon.isSmall) {
+        FloatingText.show(this, bx, by - 65, 'SWIFT! +50', '#38bdf8', '22px');
+      }
+
+      const earned = (balloon.scoreValue + (isPerfect ? 50 : 0) + swiftBonus) * this.combo * feverMultiplier;
       this.addScore(earned);
 
       if (this.mode === 'time_attack') {
@@ -739,7 +865,11 @@ export class GameScene extends Phaser.Scene {
         this.feverManager.addCharge(25);
       }
 
-      const earned = (balloon.scoreValue + (isPerfect ? 50 : 0)) * this.combo * feverMultiplier;
+      if (balloon.isSmall) {
+        FloatingText.show(this, bx, by - 65, 'SWIFT! +50', '#38bdf8', '22px');
+      }
+
+      const earned = (balloon.scoreValue + (isPerfect ? 50 : 0) + swiftBonus) * this.combo * feverMultiplier;
       this.addScore(earned);
       this.feverManager.addCharge(35);
 
@@ -761,7 +891,11 @@ export class GameScene extends Phaser.Scene {
         this.feverManager.addCharge(25);
       }
 
-      const earned = (balloon.scoreValue + (isPerfect ? 50 : 0)) * this.combo * feverMultiplier;
+      if (balloon.isSmall) {
+        FloatingText.show(this, bx, by - 65, 'SWIFT! +50', '#38bdf8', '22px');
+      }
+
+      const earned = (balloon.scoreValue + (isPerfect ? 50 : 0) + swiftBonus) * this.combo * feverMultiplier;
       this.addScore(earned);
       this.activateFreeze();
 
@@ -813,8 +947,12 @@ export class GameScene extends Phaser.Scene {
         this.feverManager.addCharge(25);
       }
 
+      if (balloon.isSmall) {
+        FloatingText.show(this, bx, by - 65, 'SWIFT! +50', '#38bdf8', '22px');
+      }
+
       const theme = BALLOON_COLORS[balloon.colorKey] || BALLOON_COLORS.red;
-      const earned = (balloon.scoreValue + (isPerfect ? 50 : 0)) * this.combo * feverMultiplier;
+      const earned = (balloon.scoreValue + (isPerfect ? 50 : 0) + swiftBonus) * this.combo * feverMultiplier;
       this.addScore(earned);
 
       sound.playPop(this.combo);
@@ -1002,12 +1140,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   public update(time: number, delta: number): void {
-    if (!this.isPlaying || this.isPaused || this.isEnding) return;
+    if (!this.isPlaying || this.isPaused || this.isEnding || this.isAnnouncementActive) return;
 
     const dt = delta / 1000;
 
-    // 1. UPDATE MODE CLOCKS & SCALED DIFFICULTY
-    let difficulty = 0;
+    // Advance active elapsed gameplay time (automatically paused when isPaused is true)
+    this.elapsedGameplayTime += dt;
+
+    // 1. UPDATE MODE CLOCKS & PROGRESSIVE DIFFICULTY TIERS
+    const difficulty = this.getDifficultyFactor();
+
     if (this.mode === 'time_attack') {
       this.timeLeft -= dt;
       if (this.timeLeft <= 0) {
@@ -1016,7 +1158,19 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      difficulty = Math.min(1, Math.max(0, (30 - this.timeLeft) / 30));
+      // Check Tier Milestones based on elapsed gameplay time:
+      // 0-10s: Tier 1 (Easy, slow balloons)
+      // 10-20s: Tier 2 (Medium speed, more balloons)
+      // 20-30s+: Tier 3 (Fast balloons, quicker color changes)
+      const expectedTier = this.elapsedGameplayTime >= 20 ? 3 : this.elapsedGameplayTime >= 10 ? 2 : 1;
+      if (expectedTier > this.currentDifficultyTier) {
+        this.currentDifficultyTier = expectedTier;
+        if (expectedTier === 2) {
+          this.announceSpeedUp(2, 'MEDIUM SPEED • MORE BALLOONS');
+        } else if (expectedTier === 3) {
+          this.announceSpeedUp(3, 'FAST BALLOONS • QUICK COLOR SHIFTS');
+        }
+      }
 
       const ceilTime = Math.ceil(this.timeLeft);
       this.timerText.setText(`${ceilTime}s`);
@@ -1036,34 +1190,41 @@ export class GameScene extends Phaser.Scene {
       } else {
         this.timerText.setColor('#38bdf8');
       }
-
-      if (this.timeLeft <= 10 && !this.isRushModeAnnounced) {
-        this.isRushModeAnnounced = true;
-        this.announceRushMode();
-      }
     } else {
       // Endless Rush Clock
-      const prevSurv = this.survivalTime;
-      this.survivalTime += dt;
-      difficulty = Math.min(1, this.survivalTime / 120);
+      this.survivalTime = this.elapsedGameplayTime;
 
       const m = Math.floor(this.survivalTime / 60);
       const s = Math.floor(this.survivalTime % 60);
       this.timerText.setText(`${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`);
 
-      // Announce milestone speed-ups every 30s
-      if (Math.floor(this.survivalTime / 30) > Math.floor(prevSurv / 30)) {
-        this.announceSpeedUp();
+      // Endless Mode: Keep increasing difficulty every 15 seconds!
+      // Tier 1: 0-15s, Tier 2: 15-30s, Tier 3: 30-45s, Tier 4: 45-60s, etc.
+      const expectedTier = Math.floor(this.elapsedGameplayTime / 15) + 1;
+      if (expectedTier > this.currentDifficultyTier) {
+        this.currentDifficultyTier = expectedTier;
+        const subtitles: Record<number, string> = {
+          2: 'TIER 2 • TEMPO UP',
+          3: 'TIER 3 • MORE BALLOONS',
+          4: 'TIER 4 • SWIFT FLOW',
+          5: 'TIER 5 • HIGH SPEED',
+          6: 'TIER 6 • RAPID SHIFT',
+          7: 'TIER 7 • HYPER RUSH',
+          8: 'TIER 8 • MASTER PACE',
+          9: 'MAX DIFFICULTY REACHED',
+        };
+        const sub = subtitles[expectedTier] || `TIER ${expectedTier} • SPEED UP`;
+        this.announceSpeedUp(expectedTier, sub);
       }
     }
 
     // 2. UPDATE COLOR RUSH SYSTEM
-    // Color switch interval accelerates as difficulty scales up over time
+    // Target-color switching becomes faster as difficulty increases
     if (this.mode === 'time_attack') {
-      const scaledInterval = Math.max(3.6, 6.5 - difficulty * 2.8); // 6.5s down to 3.7s
+      const scaledInterval = Math.max(3.8, 7.2 - difficulty * 3.4); // 7.2s down to 3.8s
       this.colorRushManager.setInterval(scaledInterval);
     } else {
-      const scaledInterval = Math.max(3.5, 7.5 - difficulty * 4.0); // 7.5s down to 3.5s
+      const scaledInterval = Math.max(3.6, 7.5 - difficulty * 3.9); // 7.5s down to 3.6s
       this.colorRushManager.setInterval(scaledInterval);
     }
     this.colorRushManager.update(dt, time);
@@ -1150,89 +1311,114 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private getSpawnInterval(): number {
+  public getDifficultyFactor(): number {
     if (this.mode === 'time_attack') {
-      const diff = Math.min(1, Math.max(0, (30 - this.timeLeft) / 30));
-      return 0.72 - diff * 0.38; // 0.72s down to 0.34s
+      // 0-30s based strictly on elapsed gameplay time:
+      // 0-10s: Easy (0.0 -> 0.333)
+      // 10-20s: Medium (0.333 -> 0.667)
+      // 20-30s: Fast (0.667 -> 1.0)
+      return Math.min(1.0, Math.max(0, this.elapsedGameplayTime / 30.0));
     } else {
-      // Endless: scales smoothly with survival time up to 120s+
-      const diff = Math.min(1, this.survivalTime / 120);
-      return 0.75 - diff * 0.42; // 0.75s down to 0.33s
+      // Endless: Smooth progressive scaling every 15s up to 120s with reasonable limit
+      return Math.min(1.0, Math.max(0, this.elapsedGameplayTime / 120.0));
     }
   }
 
-  private announceRushMode(): void {
-    const { width, height } = this.cameras.main;
-    const banner = this.add.text(width / 2, height * 0.4, '⚡ FINAL RUSH! ⚡', {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '44px',
-      fontStyle: 'bold',
-      color: '#fef08a',
-      stroke: '#b45309',
-      strokeThickness: 8,
-    }).setOrigin(0.5).setDepth(150);
-
-    SoundService.getInstance().playCombo(4);
-
-    this.tweens.add({
-      targets: banner,
-      scaleX: 1.25,
-      scaleY: 1.25,
-      duration: 350,
-      yoyo: true,
-      repeat: 1,
-      onComplete: () => {
-        banner.destroy();
-      },
-    });
+  public getSpawnInterval(): number {
+    const difficulty = this.getDifficultyFactor();
+    if (this.mode === 'time_attack') {
+      // 0-10s (d=0 -> 0.33): 0.82s down to 0.67s (easy, slow spawn)
+      // 10-20s (d=0.33 -> 0.67): 0.67s down to 0.51s (more balloons)
+      // 20-30s (d=0.67 -> 1.0): 0.51s down to 0.36s (fast rush)
+      return 0.82 - difficulty * 0.46;
+    } else {
+      // Endless: scales smoothly every 15s up to 120s with reasonable limit (0.34s)
+      return 0.82 - difficulty * 0.48; // 0.82s down to 0.34s
+    }
   }
 
-  private announceSpeedUp(): void {
-    const { width, height } = this.cameras.main;
+  private announceSpeedUp(_tier?: number, subtitle?: string): void {
+    const { width } = this.cameras.main;
     SoundService.getInstance().playCombo(3);
-    const banner = this.add.text(width / 2, height * 0.38, '⚡ SPEED UP! ⚡', {
-      fontFamily: "'Fredoka', sans-serif",
-      fontSize: '38px',
-      fontStyle: 'bold',
-      color: '#f59e0b',
-      stroke: '#0f172a',
-      strokeThickness: 6,
-    }).setOrigin(0.5).setDepth(150);
 
+    const badgeY = 175; // Non-blocking position beneath HUD & Gauges
+    const banner = this.add.container(width / 2, badgeY).setDepth(150);
+
+    const pillWidth = 270;
+    const pillHeight = subtitle ? 50 : 42;
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x0f172a, 0.90);
+    bg.fillRoundedRect(-pillWidth / 2, -pillHeight / 2, pillWidth, pillHeight, 22);
+    bg.lineStyle(2, 0xf59e0b, 0.95);
+    bg.strokeRoundedRect(-pillWidth / 2, -pillHeight / 2, pillWidth, pillHeight, 22);
+
+    const title = this.add.text(0, subtitle ? -8 : 0, '⚡ SPEED UP! ⚡', {
+      fontFamily: "'Fredoka', sans-serif",
+      fontSize: subtitle ? '19px' : '21px',
+      fontStyle: 'bold',
+      color: '#fef08a',
+      stroke: '#0f172a',
+      strokeThickness: 3,
+    }).setOrigin(0.5);
+
+    banner.add([bg, title]);
+
+    if (subtitle) {
+      const sub = this.add.text(0, 13, subtitle, {
+        fontFamily: "'Fredoka', sans-serif",
+        fontSize: '11px',
+        color: '#94a3b8',
+        fontStyle: 'bold',
+        letterSpacing: 1,
+      }).setOrigin(0.5);
+      banner.add(sub);
+    }
+
+    banner.setScale(0.7);
+    banner.setAlpha(0);
+
+    // Subtle scale-up, gentle upward float, and fade out
     this.tweens.add({
       targets: banner,
-      scaleX: 1.25,
-      scaleY: 1.25,
-      duration: 300,
-      yoyo: true,
+      scaleX: 1.05,
+      scaleY: 1.05,
+      alpha: 1,
+      y: badgeY - 6,
+      duration: 180,
+      ease: 'Back.easeOut',
       onComplete: () => {
         this.tweens.add({
           targets: banner,
+          scaleX: 1.0,
+          scaleY: 1.0,
+          y: badgeY - 22,
           alpha: 0,
-          y: height * 0.34,
-          duration: 350,
-          delay: 250,
+          duration: 380,
+          delay: 450,
+          ease: 'Cubic.easeIn',
           onComplete: () => banner.destroy(),
         });
       },
     });
+
+    const settings = StorageService.getInstance().getSettings();
+    if (!settings.reducedMotion) {
+      this.cameras.main.shake(90, 0.003);
+    }
   }
 
   private spawnBalloon(): void {
     const { width, height } = this.cameras.main;
     const activeTargetKey = this.colorRushManager.getActiveColorKey();
-
-    // Determine current difficulty factor [0, 1] based on elapsed time
-    const difficulty = this.mode === 'time_attack'
-      ? Math.min(1, Math.max(0, (30 - this.timeLeft) / 30))
-      : Math.min(1, this.survivalTime / 120);
+    const difficulty = this.getDifficultyFactor();
 
     let type: BalloonType = 'normal';
     let colorKey = activeTargetKey;
 
     // Difficulty-scaled probabilities for special balloons:
-    // Hazards scale up with time (8% -> 24%), punishing wild/careless tapping
-    const hazardChance = 0.08 + difficulty * 0.16;
+    // Hazards scale up with time (6% -> 22%), rewarding precision
+    const hazardChance = 0.06 + difficulty * 0.16;
     const goldenChance = Math.max(0.04, 0.07 - difficulty * 0.02);
     const rainbowChance = Math.max(0.03, 0.05 - difficulty * 0.01);
     const freezeChance = 0.05;
@@ -1285,22 +1471,32 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Dynamic speed scaling with elapsed time
+    // Dynamic speed scaling with elapsed gameplay time:
+    // 0-10s (or 0-15s Endless): slow balloons (~190 px/s)
+    // 10-20s (or 15-45s Endless): medium speed (~270 px/s)
+    // 20-30s (or 45s+ Endless): fast balloons (~350 - 430 px/s)
     let baseSpeed: number;
     let swayAmp: number;
     let swayFreq: number;
 
     if (this.mode === 'time_attack') {
-      baseSpeed = 230 + difficulty * 220; // 230 px/s early up to 450 px/s in final rush
-      swayAmp = 25 + difficulty * 25;     // 25px up to 50px
-      swayFreq = 1.8 + difficulty * 1.4;  // 1.8 up to 3.2
+      baseSpeed = 190 + difficulty * 240; // 190 px/s early up to 430 px/s in final rush
+      swayAmp = 16 + difficulty * 28;     // 16px up to 44px
+      swayFreq = 1.2 + difficulty * 1.6;  // 1.2 up to 2.8 rad/s
     } else {
-      baseSpeed = 220 + difficulty * 230; // 220 px/s early up to 450 px/s
-      swayAmp = 25 + difficulty * 25;     // 25px up to 50px
-      swayFreq = 1.8 + difficulty * 1.4;  // 1.8 up to 3.2
+      baseSpeed = 190 + difficulty * 240; // 190 px/s early up to 430 px/s reasonable limit
+      swayAmp = 16 + difficulty * 28;     // 16px up to 44px
+      swayFreq = 1.2 + difficulty * 1.6;  // 1.2 up to 2.8 rad/s
     }
 
-    const speed = baseSpeed + Phaser.Math.Between(-20, 25);
+    // Introduce smaller and faster balloons at higher difficulty levels:
+    // Starts appearing when difficulty > 0.25 (after early 10s phase in Time Attack, or after 30s in Endless)
+    const smallBalloonChance = Math.max(0, (difficulty - 0.25) * 0.45); // 0% early up to ~34% at max
+    const isSmall = Math.random() < smallBalloonChance;
+    const balloonScale = isSmall ? Phaser.Math.FloatBetween(0.80, 0.85) : 1.0;
+    const speedMultiplier = isSmall ? 1.25 : 1.0; // 25% faster float speed
+
+    const speed = (baseSpeed + Phaser.Math.Between(-15, 20)) * speedMultiplier;
     const swayAmplitude = Phaser.Math.Between(Math.floor(swayAmp * 0.8), Math.floor(swayAmp * 1.2));
     const swayFrequency = Phaser.Math.FloatBetween(swayFreq * 0.85, swayFreq * 1.15);
 
@@ -1329,6 +1525,8 @@ export class GameScene extends Phaser.Scene {
       swayFrequency,
       startX,
       startY,
+      scale: balloonScale,
+      isSmall,
       scoreValue:
         type === 'golden'
           ? 300
@@ -1480,6 +1678,11 @@ export class GameScene extends Phaser.Scene {
     this.isPaused = !this.isPaused;
     this.pauseOverlay.setVisible(this.isPaused);
     SoundService.getInstance().playClick();
+    if (this.isPaused) {
+      this.tweens.pauseAll();
+    } else {
+      this.tweens.resumeAll();
+    }
   }
 
   private restartGame(): void {
@@ -1502,6 +1705,8 @@ export class GameScene extends Phaser.Scene {
     let highScore = 0;
     let bestSurvivalTime = 0;
 
+    const elapsedSecs = Math.floor(this.elapsedGameplayTime);
+
     if (this.mode === 'time_attack') {
       isNewBestScore = storage.saveTimeAttackHighScore(this.score);
       highScore = storage.getTimeAttackHighScore();
@@ -1514,7 +1719,7 @@ export class GameScene extends Phaser.Scene {
 
     // Automatically submit score to shared Firebase Family Leaderboard on round completion
     LeaderboardService.getInstance()
-      .submitScore(this.mode, this.score, Math.floor(this.survivalTime))
+      .submitScore(this.mode, this.score, elapsedSecs)
       .catch((err) => {
         console.warn('[GameScene] Leaderboard submission error:', err);
       });
@@ -1523,7 +1728,7 @@ export class GameScene extends Phaser.Scene {
       mode: this.mode,
       score: this.score,
       highScore,
-      survivalTime: Math.floor(this.survivalTime),
+      survivalTime: elapsedSecs,
       bestSurvivalTime,
       balloonsPopped: this.totalPopped,
       perfectPops: this.perfectPops,

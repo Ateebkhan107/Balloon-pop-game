@@ -44,6 +44,8 @@ export class LeaderboardService {
   private currentUser: User | null = null;
   private isConfigured: boolean = false;
   private initPromise: Promise<void> | null = null;
+  private authReadyPromise: Promise<User | null>;
+  private authReadyResolve!: (user: User | null) => void;
   private authError: string | null = null;
 
   // Maximum sane score safeguards for arcade popping
@@ -51,6 +53,9 @@ export class LeaderboardService {
   public static readonly MAX_ENTRIES_LIMIT = 50;
 
   private constructor() {
+    this.authReadyPromise = new Promise<User | null>((resolve) => {
+      this.authReadyResolve = resolve;
+    });
     this.initPromise = this.initializeFirebase();
   }
 
@@ -83,6 +88,7 @@ export class LeaderboardService {
       ) {
         console.info('[LeaderboardService] Firebase configuration not set or using placeholder credentials. Running in offline/local fallback mode.');
         this.isConfigured = false;
+        this.authReadyResolve(null);
         return;
       }
 
@@ -102,25 +108,42 @@ export class LeaderboardService {
       this.isConfigured = true;
 
       // Listen for auth state
-      onAuthStateChanged(this.auth, (user) => {
+      let initialAuthHandled = false;
+      onAuthStateChanged(this.auth, async (user) => {
         if (user) {
           this.currentUser = user;
           this.authError = null;
           StorageService.getInstance().saveFirebaseUid(user.uid);
-          this.syncProfile();
+          await this.syncProfile();
         } else {
           this.currentUser = null;
         }
+
+        if (!initialAuthHandled) {
+          initialAuthHandled = true;
+          this.authReadyResolve(user);
+        }
       });
 
-      // Sign in anonymously in background
+      // Sign in anonymously in background if not already cached
       await this.ensureAuthenticated();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn('[LeaderboardService] Firebase initialization warning:', msg);
       this.authError = msg;
       this.isConfigured = false;
+      this.authReadyResolve(null);
     }
+  }
+
+  /**
+   * Waits for initial Firebase Auth check to complete.
+   */
+  public async waitForAuthReady(): Promise<User | null> {
+    if (this.initPromise) {
+      await this.initPromise;
+    }
+    return this.authReadyPromise;
   }
 
   /**
@@ -164,17 +187,43 @@ export class LeaderboardService {
   }
 
   /**
-   * Syncs nickname and profile with Firebase users collection
+   * Syncs nickname and profile with Firebase users collection safely.
+   * If remote profile exists, restores it to local storage without prompting.
    */
   public async syncProfile(): Promise<void> {
     if (!this.isConfigured || !this.db || !this.currentUser) return;
     try {
-      const nickname = this.getNickname();
-      const userRef = ref(this.db, `users/${this.currentUser.uid}`);
-      await set(userRef, {
-        nickname,
-        updatedAt: Date.now(),
-      });
+      const storage = StorageService.getInstance();
+      const uid = this.currentUser.uid;
+      const userRef = ref(this.db, `users/${uid}`);
+
+      const userSnap = await get(userRef);
+      const localNickname = storage.getNickname();
+
+      if (userSnap.exists()) {
+        const remoteVal = userSnap.val();
+        const remoteNick = remoteVal?.nickname ? StorageService.sanitizeNickname(remoteVal.nickname) : null;
+
+        if (remoteNick && remoteNick !== 'Player') {
+          // Restore remote nickname to local storage if local is not set or default
+          if (!localNickname || localNickname === 'Player') {
+            storage.saveNickname(remoteNick);
+            storage.setNicknamePrompted();
+          }
+        } else if (localNickname && localNickname !== 'Player') {
+          // Local nickname is customized; sync to Firebase
+          await set(userRef, {
+            nickname: localNickname,
+            updatedAt: Date.now(),
+          });
+        }
+      } else if (localNickname && localNickname !== 'Player') {
+        // Create initial profile in Firebase with user's customized nickname
+        await set(userRef, {
+          nickname: localNickname,
+          updatedAt: Date.now(),
+        });
+      }
     } catch (err) {
       console.warn('[LeaderboardService] Could not sync user profile:', err);
     }
@@ -291,9 +340,17 @@ export class LeaderboardService {
         return undefined;
       });
 
+      // If record was not beaten, personal best was safely preserved
+      if (!recordBeaten) {
+        return {
+          success: true,
+          isNewBest: false,
+        };
+      }
+
       return {
         success: result.committed,
-        isNewBest: recordBeaten && result.committed,
+        isNewBest: result.committed,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

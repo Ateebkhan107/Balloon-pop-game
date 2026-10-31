@@ -11,6 +11,8 @@ export interface BalloonConfig {
   startX: number;
   startY: number;
   scoreValue: number;
+  scale?: number;
+  isSmall?: boolean;
   onEscape?: (balloon: Balloon) => void;
 }
 
@@ -20,6 +22,8 @@ export class Balloon extends Phaser.GameObjects.Sprite {
   public scoreValue: number;
   public isPopped: boolean = false;
   public isFrozen: boolean = false;
+  public targetScale: number = 1.0;
+  public isSmall: boolean = false;
 
   private baseSpeed: number;
   private speed: number;
@@ -49,6 +53,8 @@ export class Balloon extends Phaser.GameObjects.Sprite {
     this.balloonType = config.type;
     this.colorKey = config.colorKey || '';
     this.scoreValue = config.scoreValue;
+    this.targetScale = config.scale !== undefined ? config.scale : 1.0;
+    this.isSmall = config.isSmall || this.targetScale < 0.95;
     this.baseSpeed = config.speed;
     this.speed = config.speed;
     this.swayAmplitude = config.swayAmplitude;
@@ -59,21 +65,23 @@ export class Balloon extends Phaser.GameObjects.Sprite {
 
     scene.add.existing(this);
 
-    // Hit area centered on the balloon body (width 120, height 170)
+    // Hit area centered on the balloon body (width 120, height 170).
+    // Ensure mobile accessibility: scale local hit circle so effective world radius is >= 48px
+    const localHitRadius = Math.max(56, 48 / this.targetScale);
     this.setInteractive(
-      new Phaser.Geom.Circle(60, 60, 56),
+      new Phaser.Geom.Circle(60, 60, localHitRadius),
       Phaser.Geom.Circle.Contains
     );
     if (this.input) {
       this.input.cursor = 'pointer';
     }
 
-    // Spawn pop-in animation
+    // Spawn pop-in animation scaled to target scale
     this.setScale(0);
     scene.tweens.add({
       targets: this,
-      scaleX: 1,
-      scaleY: 1,
+      scaleX: this.targetScale,
+      scaleY: this.targetScale,
       duration: 320,
       ease: 'Back.easeOut',
     });
@@ -129,8 +137,8 @@ export class Balloon extends Phaser.GameObjects.Sprite {
 
     this.scene.tweens.add({
       targets: this,
-      scaleX: 1.25,
-      scaleY: 1.25,
+      scaleX: this.targetScale * 1.25,
+      scaleY: this.targetScale * 1.25,
       alpha: 0.7,
       duration: 50,
       onComplete: () => {
@@ -173,8 +181,8 @@ export class Balloon extends Phaser.GameObjects.Sprite {
     this.scene.tweens.add({
       targets: this,
       alpha: 0,
-      scaleX: 0.6,
-      scaleY: 0.6,
+      scaleX: this.targetScale * 0.6,
+      scaleY: this.targetScale * 0.6,
       duration: 160,
       onComplete: () => {
         this.destroy();

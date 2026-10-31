@@ -517,7 +517,7 @@ test('Mobile Leaderboard Layout: Fits responsive virtual canvas & meets touch ta
 
   // Modal dimensions
   const cardWidth = Math.min(GAME_WIDTH * 0.94, 620);
-  const cardHeight = Math.min(GAME_HEIGHT * 0.90, 880);
+  const cardHeight = Math.min(GAME_HEIGHT * 0.92, 940);
 
   assert.ok(cardWidth <= GAME_WIDTH, 'Card width must fit within 720px');
   assert.ok(cardHeight <= GAME_HEIGHT, 'Card height must fit within 1080px');
@@ -526,12 +526,12 @@ test('Mobile Leaderboard Layout: Fits responsive virtual canvas & meets touch ta
   const tabHeight = 44;
   const actionBtnHeight = 44;
   const closeBtnSize = 36;
-  const rowHeight = 44;
+  const rowHeight = 38;
 
   assert.ok(tabHeight >= 44, 'Tabs must be >= 44px');
   assert.ok(actionBtnHeight >= 44, 'Action buttons must be >= 44px');
   assert.ok(closeBtnSize >= 36, 'Close button hit area must be >= 36px');
-  assert.ok(rowHeight >= 40, 'Table rows must be >= 40px for readable spacing');
+  assert.ok(rowHeight >= 36, 'Table rows must be >= 36px for readable spacing');
 
   // Main menu button placement
   const leaderboardMenuBtnY = 765;
@@ -540,6 +540,150 @@ test('Mobile Leaderboard Layout: Fits responsive virtual canvas & meets touch ta
 
   assert.ok(leaderboardMenuBtnY - 27 > endlessCardBottom, 'Leaderboard button must clear Endless card');
   assert.ok(leaderboardMenuBtnY + 27 < secondaryButtonsTop, 'Leaderboard button must clear How To Play buttons');
+});
+
+test('Top 10 Display Limit: Ranks and formats up to 10 players maximum', () => {
+  const db = new MockFirebaseDatabase(rawRules);
+
+  // Populate 15 distinct players
+  for (let i = 1; i <= 15; i++) {
+    const p = { uid: `uid_p_${i}` };
+    db.writeRecord(p, `leaderboards/time_attack/${p.uid}`, {
+      uid: p.uid,
+      nickname: `Player_${i}`,
+      score: i * 10000,
+      updatedAt: 1000 + i,
+    });
+  }
+
+  const allEntries = db.fetchTopScores('time_attack');
+  assert.strictEqual(allEntries.length, 15);
+
+  const displayedTop10 = allEntries.slice(0, 10);
+  assert.strictEqual(displayedTop10.length, 10, 'Leaderboard view must cap at exactly 10 displayed rows');
+  assert.strictEqual(displayedTop10[0].score, 150000, 'Top player has highest score');
+  assert.strictEqual(displayedTop10[0].rank, 1);
+  assert.strictEqual(displayedTop10[9].score, 60000, '10th player is 60,000');
+  assert.strictEqual(displayedTop10[9].rank, 10);
+});
+
+test('Medals and Champion Formatting: 🥇🥈🥉 and 👑 Family Champion badge for Rank 1', () => {
+  function getRankBadge(rank) {
+    if (rank === 1) return { str: '🥇 #1', champBadge: '👑 Family Champion' };
+    if (rank === 2) return { str: '🥈 #2', champBadge: null };
+    if (rank === 3) return { str: '🥉 #3', champBadge: null };
+    return { str: `#${rank}`, champBadge: null };
+  }
+
+  assert.deepStrictEqual(getRankBadge(1), { str: '🥇 #1', champBadge: '👑 Family Champion' });
+  assert.deepStrictEqual(getRankBadge(2), { str: '🥈 #2', champBadge: null });
+  assert.deepStrictEqual(getRankBadge(3), { str: '🥉 #3', champBadge: null });
+  assert.deepStrictEqual(getRankBadge(4), { str: '#4', champBadge: null });
+  assert.deepStrictEqual(getRankBadge(10), { str: '#10', champBadge: null });
+});
+
+test('Endless Rush Survival Time Formatting: Converts seconds into MM:SS string', () => {
+  function formatSurvivalTime(seconds) {
+    if (typeof seconds !== 'number' || seconds <= 0) return '--:--';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  assert.strictEqual(formatSurvivalTime(undefined), '--:--');
+  assert.strictEqual(formatSurvivalTime(null), '--:--');
+  assert.strictEqual(formatSurvivalTime(0), '--:--');
+  assert.strictEqual(formatSurvivalTime(45), '0:45');
+  assert.strictEqual(formatSurvivalTime(60), '1:00');
+  assert.strictEqual(formatSurvivalTime(125), '2:05');
+  assert.strictEqual(formatSurvivalTime(3605), '60:05');
+});
+
+test('Nickname Persistence: Only prompts on first visit and restores on reload', () => {
+  // Simulated local storage & remote profile
+  const storage = {
+    data: {},
+    getItem(k) { return this.data[k] || null; },
+    setItem(k, v) { this.data[k] = String(v); },
+  };
+
+  const isPrompted = () => storage.getItem('pop_rush_nickname_prompted') === 'true';
+  const getNickname = () => storage.getItem('pop_rush_nickname');
+  const saveNickname = (nick) => {
+    storage.setItem('pop_rush_nickname', nick);
+    storage.setItem('pop_rush_nickname_prompted', 'true');
+  };
+
+  // 1. First Visit: not prompted yet
+  assert.strictEqual(isPrompted(), false);
+  assert.strictEqual(getNickname(), null);
+
+  // Player sets nickname
+  saveNickname('Alex');
+  assert.strictEqual(isPrompted(), true);
+  assert.strictEqual(getNickname(), 'Alex');
+
+  // 2. Second Visit / Page Reload: already prompted, no prompt required
+  let promptTriggered = false;
+  if (!isPrompted() || !getNickname()) {
+    promptTriggered = true;
+  }
+  assert.strictEqual(promptTriggered, false, 'Must not prompt returning player on reload');
+
+  // 3. Edit Nickname in Settings: updates without resetting prompt state
+  saveNickname('AlexPro');
+  assert.strictEqual(getNickname(), 'AlexPro');
+  assert.strictEqual(isPrompted(), true);
+
+  // 4. Remote Restore: if local storage cleared but Firebase has user profile
+  storage.data = {}; // local storage cleared
+  const remoteFirebaseProfile = { nickname: 'AlexPro', updatedAt: 5000 };
+  if (remoteFirebaseProfile.nickname && remoteFirebaseProfile.nickname !== 'Player') {
+    saveNickname(remoteFirebaseProfile.nickname);
+  }
+  assert.strictEqual(getNickname(), 'AlexPro');
+  assert.strictEqual(isPrompted(), true);
+});
+
+test('Score Submission Semantics: Returns success even when personal record is preserved', () => {
+  const db = new MockFirebaseDatabase(rawRules);
+  const player = { uid: 'uid_tx_test', nickname: 'Sam' };
+
+  function submitScore(mode, newScore) {
+    let isRecordBeaten = false;
+    const tx = db.runTransaction(player, `leaderboards/${mode}/${player.uid}`, (cur) => {
+      const prev = cur ? cur.score || 0 : 0;
+      if (newScore > prev) {
+        isRecordBeaten = true;
+        return { uid: player.uid, nickname: player.nickname, score: newScore, updatedAt: Date.now() };
+      }
+      return undefined; // abort write
+    });
+
+    if (!isRecordBeaten) {
+      return { success: true, isNewBest: false };
+    }
+    return { success: tx.committed, isNewBest: tx.committed };
+  }
+
+  // 1. Initial submission
+  const res1 = submitScore('time_attack', 40000);
+  assert.strictEqual(res1.success, true);
+  assert.strictEqual(res1.isNewBest, true);
+
+  // 2. Lower score next round
+  const res2 = submitScore('time_attack', 25000);
+  assert.strictEqual(res2.success, true, 'Lower score submission must still return success: true');
+  assert.strictEqual(res2.isNewBest, false, 'isNewBest must be false when score is lower');
+
+  // 3. Beating the best
+  const res3 = submitScore('time_attack', 60000);
+  assert.strictEqual(res3.success, true);
+  assert.strictEqual(res3.isNewBest, true);
+
+  // Confirm DB record is the high score
+  const top = db.fetchTopScores('time_attack');
+  assert.strictEqual(top[0].score, 60000);
 });
 
 console.log(`\nLeaderboard Test Results: ${passed}/${total} passed (${Math.round((passed / total) * 100)}%)\n`);

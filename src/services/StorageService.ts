@@ -67,6 +67,7 @@ const STORAGE_KEYS = {
   BEST_TIME_ENDLESS: 'pop_rush_endless_best_time',
   SETTINGS: 'pop_rush_settings',
   PLAYER_NICKNAME: 'pop_rush_player_nickname',
+  NICKNAME_PROMPTED: 'pop_rush_nickname_prompted',
   FIREBASE_UID: 'pop_rush_firebase_uid',
   BACKGROUND_THEME: 'pop_rush_bg_theme',
 };
@@ -168,6 +169,25 @@ export class StorageService {
 
   // --- PLAYER PROFILE & NICKNAME ---
 
+  public isNicknamePrompted(): boolean {
+    try {
+      const prompted = localStorage.getItem(STORAGE_KEYS.NICKNAME_PROMPTED);
+      if (prompted === 'true') return true;
+      const nick = this.getNickname();
+      return Boolean(nick && nick !== 'Player');
+    } catch {
+      return false;
+    }
+  }
+
+  public setNicknamePrompted(): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.NICKNAME_PROMPTED, 'true');
+    } catch {
+      // Ignore quota error
+    }
+  }
+
   public getNickname(): string | null {
     try {
       const val = localStorage.getItem(STORAGE_KEYS.PLAYER_NICKNAME);
@@ -181,6 +201,7 @@ export class StorageService {
     const sanitized = StorageService.sanitizeNickname(nickname);
     try {
       localStorage.setItem(STORAGE_KEYS.PLAYER_NICKNAME, sanitized);
+      localStorage.setItem(STORAGE_KEYS.NICKNAME_PROMPTED, 'true');
     } catch {
       // Ignore quota errors
     }

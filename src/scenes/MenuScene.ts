@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { StorageService, BACKGROUND_THEMES, BackgroundThemeId } from '../services/StorageService';
 import { SoundService } from '../services/SoundService';
 import { GameModals } from '../ui/GameModals';
+import { LeaderboardService } from '../services/LeaderboardService';
 
 export class MenuScene extends Phaser.Scene {
   private ambientBalloons: Phaser.GameObjects.Sprite[] = [];
@@ -46,15 +47,8 @@ export class MenuScene extends Phaser.Scene {
     // --- KEYBOARD CONTROLS ---
     this.setupKeyboard();
 
-    // Check first-time visitor: prompt for nickname if not set
-    const storage = StorageService.getInstance();
-    if (!storage.getNickname()) {
-      this.time.delayedCall(450, () => {
-        GameModals.showNicknamePrompt(this, (name) => {
-          this.updatePlayerPill(name);
-        });
-      });
-    }
+    // Check first-time visitor: wait for auth, restore profile, or prompt if new
+    this.checkFirstTimeVisitor();
 
     // Scene transition fade in
     this.cameras.main.fadeIn(300, 15, 23, 42);
@@ -232,6 +226,37 @@ export class MenuScene extends Phaser.Scene {
         this.updatePlayerPill(newName);
       });
     });
+  }
+
+  private async checkFirstTimeVisitor(): Promise<void> {
+    const storage = StorageService.getInstance();
+    const leaderboard = LeaderboardService.getInstance();
+
+    // If already prompted or has saved nickname, not a first-time visitor
+    if (storage.isNicknamePrompted() && storage.getNickname()) {
+      this.updatePlayerPill();
+      return;
+    }
+
+    // Wait for Firebase auth to initialize and restore any existing profile
+    await leaderboard.waitForAuthReady();
+
+    // If profile was restored from Firebase during auth, update pill and return
+    const restoredNick = storage.getNickname();
+    if (restoredNick && restoredNick !== 'Player') {
+      storage.setNicknamePrompted();
+      this.updatePlayerPill(restoredNick);
+      return;
+    }
+
+    // Only prompt if player has never been prompted before
+    if (!storage.isNicknamePrompted()) {
+      GameModals.showNicknamePrompt(this, (name) => {
+        this.updatePlayerPill(name);
+      });
+    } else {
+      this.updatePlayerPill();
+    }
   }
 
   private updatePlayerPill(name?: string): void {
@@ -561,6 +586,7 @@ export class MenuScene extends Phaser.Scene {
         SoundService.getInstance().playClick();
         GameModals.showSettings(this, () => {
           this.soundBtnIcon.setTexture(SoundService.getInstance().isSoundEnabled() ? 'icon_sound_on' : 'icon_sound_off');
+          this.updatePlayerPill();
         });
       }
     );

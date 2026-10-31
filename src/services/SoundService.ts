@@ -150,34 +150,42 @@ export class SoundService {
   }
 
   /**
-   * Distinct two-tone ascending chime when the active target color changes
+   * Crisp, vibrant arcade transition chime when the active target color is announced
    */
-  public playColorSwitch(): void {
+  public playColorAnnouncement(): void {
     if (!this.isSoundEnabled()) return;
     this.initContext();
     if (!this.ctx || !this.masterGain) return;
 
     const t = this.ctx.currentTime;
-    const notes = [587.33, 880]; // D5, A5
+    const notes = [587.33, 739.99, 880.0, 1174.66]; // D5, F#5, A5, D6 (bright D Major triad)
 
     notes.forEach((freq, i) => {
       if (!this.ctx || !this.masterGain) return;
-      const start = t + i * 0.08;
+      const start = t + i * 0.055;
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
 
-      osc.type = 'triangle';
+      osc.type = i === notes.length - 1 ? 'sine' : 'triangle';
       osc.frequency.setValueAtTime(freq, start);
 
-      gain.gain.setValueAtTime(0.35, start);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.22);
+      const peakGain = i === notes.length - 1 ? 0.38 : 0.28;
+      gain.gain.setValueAtTime(peakGain, start);
+      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.32);
 
       osc.connect(gain);
       gain.connect(this.masterGain);
 
       osc.start(start);
-      osc.stop(start + 0.24);
+      osc.stop(start + 0.34);
     });
+  }
+
+  /**
+   * Distinct two-tone ascending chime when the active target color changes
+   */
+  public playColorSwitch(): void {
+    this.playColorAnnouncement();
   }
 
   /**
